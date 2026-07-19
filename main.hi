@@ -1,0 +1,11 @@
+INPUT "Enter your age: " age
+GE age 18
+POP cond
+IF cond
+    PRINT "You are adult"
+ENDIF
+LT age 18
+POP cond
+IF cond
+    PRINT "Minor"
+ENDIF
