@@ -59,8 +59,9 @@ Comments start with `//` and extend to the end of the line.
 | `INPUT [prompt] var`               | Reads a line from standard input. If a prompt is given, it is displayed before reading. The input is parsed as a number if possible, otherwise stored as a string.                                                          |
 | `ADD`, `SUB`, `MUL`, `DIV`         | Arithmetic operations. They can be used in two ways: <br> • **Without arguments**: pops two values from the stack and pushes the result. <br> • **With two arguments**: e.g., `ADD 3 5` computes 3+5 and pushes the result. |
 | `EQ`, `NE`, `GT`, `GE`, `LT`, `LE` | Comparison operators. They return a boolean (`1` for true, `0` for false). Same usage as arithmetic.                                                                                                                        |
-| `IF condition`                     | If the condition evaluates to **false**, jumps to the matching `ENDIF`.                                                                                                                                                     |
-| `ENDIF`                            | Marks the end of an `IF` block.                                                                                                                                                                                             |
+| `IF condition`                     | Starts an conditional block. If the condition evaluates to **false**, execution jumps to the matching `ELSE` (if present) or directly to `ENDIF`.                                                                           |
+| `ELSE`                             | Marks the start of the alternative block. Executed only if the preceding `IF` condition was **false**. After executing this block, execution jumps to the matching `ENDIF`.                                                 |
+| `ENDIF`                            | Marks the end of an `IF/ELSE` block.                                                                                                                                                                                        |
 | `WHILE condition`                  | If the condition is **false**, jumps to the matching `DO`. Otherwise, enters the loop.                                                                                                                                      |
 | `DO`                               | Marks the end of a `WHILE` block. Jumps back to the corresponding `WHILE`.                                                                                                                                                  |
 | `BREAK`                            | Immediately exits the innermost `WHILE` loop.                                                                                                                                                                               |
@@ -100,6 +101,8 @@ The language maintains a **value stack**. Many commands interact with it:
 ```hi
 IF condition
     // code if true
+ELSE
+    // code if false
 ENDIF
 ```
 
@@ -192,15 +195,10 @@ GE age 18
 POP cond
 IF cond
     PRINT "You are adult"
-ENDIF
-LT age 18
-POP cond
-IF cond
+ELSE
     PRINT "Minor"
 ENDIF
 ```
-
-> **Note:** `ELSE` is not yet supported; you can use two separate `IF` statements.
 
 ---
 
