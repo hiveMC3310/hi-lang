@@ -31,9 +31,13 @@ pub struct Interpreter {
     stack: Vec<Value>,
     globals: HashMap<String, Value>,
     call_stack: Vec<CallFrame>,
+
     if_jump_map: HashMap<usize, usize>,
+    else_jump_map: HashMap<usize, usize>,
+
     loop_start_map: HashMap<usize, usize>,
     loop_back_map: HashMap<usize, usize>,
+
     func_start_map: HashMap<String, usize>,
     func_end_map: HashMap<String, usize>,
 }
@@ -48,6 +52,7 @@ impl Interpreter {
             globals: HashMap::new(),
             call_stack: Vec::new(),
             if_jump_map: HashMap::new(),
+            else_jump_map: HashMap::new(),
             loop_start_map: HashMap::new(),
             loop_back_map: HashMap::new(),
             func_start_map: HashMap::new(),
@@ -78,7 +83,7 @@ impl Interpreter {
 
     /// Builds jump maps for IF/WHILE/FUNC structures.
     fn build_maps(&mut self) -> InterpResult<()> {
-        let mut if_stack = Vec::new();
+        let mut if_stack: Vec<(usize, Option<usize>)> = Vec::new();
         let mut while_stack = Vec::new();
         let mut func_stack = Vec::new();
 
@@ -117,10 +122,36 @@ impl Interpreter {
                         });
                     }
                 }
-                "IF" => if_stack.push(i),
+                "IF" => {
+                    if tokens.len() < 2 {
+                        return Err(InterpError::Syntax {
+                            line: i + 1,
+                            message: "IF requires a condition".to_string(),
+                        });
+                    }
+                    if_stack.push((i, None));
+                }
+                "ELSE" => {
+                    if let Some((_, else_line)) = if_stack.last_mut() {
+                        *else_line = Some(i);
+                    } else {
+                        return Err(InterpError::Syntax {
+                            line: i + 1,
+                            message: "Unexpected ELSE".to_string(),
+                        });
+                    }
+                }
                 "ENDIF" => {
-                    if let Some(start) = if_stack.pop() {
-                        self.if_jump_map.insert(start, i);
+                    if let Some((if_line, else_line_opt)) = if_stack.pop() {
+                        let target = match &else_line_opt {
+                            Some(else_line) => *else_line,
+                            None => i,
+                        };
+                        self.if_jump_map.insert(if_line, target);
+
+                        if let Some(else_line) = else_line_opt {
+                            self.else_jump_map.insert(else_line, i);
+                        }
                     } else {
                         return Err(InterpError::Syntax {
                             line: i + 1,
@@ -308,6 +339,7 @@ impl Interpreter {
                 )?;
                 Ok(Command::If(cond))
             }
+            "ELSE" => Ok(Command::Else),
             "ENDIF" => Ok(Command::Endif),
             "WHILE" => {
                 if tokens.len() < 2 {
@@ -604,14 +636,22 @@ impl Interpreter {
 
             Command::If(cond) => {
                 let condition = cond.as_bool();
+
                 if !condition {
                     let target = self.if_jump_map.get(&self.line_num).ok_or_else(|| {
-                        InterpError::Internal("No matching ENDIF for IF".to_string())
+                        InterpError::Internal("No matching jump target for IF".to_string())
                     })?;
-                    self.line_num = target + 1;
+                    self.line_num = *target + 1;
                 } else {
                     self.line_num += 1;
                 }
+            }
+
+            Command::Else => {
+                let target = self.else_jump_map.get(&self.line_num).ok_or_else(|| {
+                    InterpError::Internal("No matching ENDIF for ELSE".to_string())
+                })?;
+                self.line_num = *target;
             }
 
             Command::Endif => {

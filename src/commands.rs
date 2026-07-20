@@ -22,6 +22,7 @@ pub enum Command {
     Lt(Option<Value>, Option<Value>),
     Le(Option<Value>, Option<Value>),
     If(Value),
+    Else,
     Endif,
     While(Value),
     Do,
