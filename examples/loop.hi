@@ -1,0 +1,13 @@
+// WHILE loop with BREAK
+LET i 0
+LET running 1
+LT i 10
+POP running
+WHILE running
+    PRINT i
+    ADD i 1
+    POP i
+    LT i 10
+    POP running
+DO
+PRINT "Loop finished"

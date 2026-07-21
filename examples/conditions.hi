@@ -1,0 +1,9 @@
+// Conditional IF/ELSE statement
+INPUT "Enter a number: " n
+GE n 10
+POP cond
+IF cond
+    PRINT "Number is >= 10"
+ELSE
+    PRINT "Number is < 10"
+ENDIF

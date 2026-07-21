@@ -1,0 +1,23 @@
+INPUT "From C => F (1), From F => C (2): " choise
+
+EQ choise 1
+POP cond
+
+IF cond
+	INPUT "Enter a temperature in C: " celsius
+
+	MUL 1.8 celsius
+	PUSH 32
+	ADD
+	POP fahr
+
+	PRINT fahr
+ELSE
+	INPUT "Enter a temperature in F: " fahr
+
+	SUB fahr 32
+	DIV SP 1.8
+	POP celsius
+	
+	PRINT celsius
+ENDIF

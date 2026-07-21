@@ -1,0 +1,20 @@
+// Functions and local variables
+FUNC square
+  	// waiting for a number on the stack
+  	PUSH SP   // duplicating it
+  	MUL       // squaring it
+	 	RET
+ENDF
+
+PUSH 7
+CALL square
+POP result
+PRINT "7^2 = " result
+
+FUNC greet
+  LET name "World"
+  PRINT "Hello, " name "!"
+RET
+ENDF
+
+CALL greet

@@ -1,0 +1,28 @@
+FUNC factorial
+	POP n
+	LET result 1
+	LET i 1
+
+	LE i n
+	POP cond
+
+	WHILE cond
+		MUL result i
+		POP result
+
+		ADD i 1
+		POP i
+
+		LE i n
+		POP cond
+	DO
+
+	PUSH result
+ENDF
+
+INPUT "Enter a number: " n
+PUSH n
+CALL factorial
+POP result
+
+PRINT "Factorial " n " = " result
