@@ -10,6 +10,15 @@ pub fn parse(s: &str) -> Value {
     if let Ok(f) = s.parse::<f64>() {
         return Value::Float(f);
     }
+
+    let trimmed = s.trim();
+    if trimmed == "True" {
+        return Value::Bool(true);
+    }
+    if trimmed == "False" {
+        return Value::Bool(false);
+    }
+
     Value::String(s.to_string())
 }
 

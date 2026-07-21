@@ -324,6 +324,38 @@ impl Interpreter {
                 let (a, b) = self.parse_binary_args(tokens)?;
                 Ok(Command::Le(a, b))
             }
+            "AND" => {
+                let (a, b) = self.parse_binary_args(tokens)?;
+                Ok(Command::And(a, b))
+            }
+            "OR" => {
+                let (a, b) = self.parse_binary_args(tokens)?;
+                Ok(Command::Or(a, b))
+            }
+            "NOT" => {
+                if tokens.len() == 1 {
+                    if self.stack.len() < 1 {
+                        return Err(InterpError::Semantic {
+                            line: self.line_num + 1,
+                            message: "Not enough values on stack for logic operation".to_string(),
+                        });
+                    }
+                    Ok(Command::Not(None))
+                } else if tokens.len() >= 2 {
+                    let a = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    Ok(Command::Not(Some(a)))
+                } else {
+                    Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "Invalid arguments for logic operation".to_string(),
+                    })
+                }
+            }
             "IF" => {
                 if tokens.len() < 2 {
                     return Err(InterpError::Syntax {
@@ -502,7 +534,7 @@ impl Interpreter {
                 self.line_num += 1;
             }
 
-            // ---------- Арифметические операции ----------
+            // ---------- Arithmetic ----------
             Command::Add(a, b) | Command::Sub(a, b) | Command::Mul(a, b) | Command::Div(a, b) => {
                 let (left, right) = match (a, b) {
                     (Some(l), Some(r)) => (l.clone(), r.clone()),
@@ -550,14 +582,19 @@ impl Interpreter {
                         }
                         Self::apply_arithmetic(&left, &right, |x, y| x / y, |x, y| x / y, line)?
                     }
-                    _ => unreachable!(),
+                    _ => {
+                        return Err(InterpError::Internal(format!(
+                            "Reached invalid command in arithmetic block:: {:?}",
+                            cmd
+                        )));
+                    }
                 };
 
                 self.stack.push(result);
                 self.line_num += 1;
             }
 
-            // ---------- Операции сравнения ----------
+            // ---------- Comparison ----------
             Command::Eq(a, b)
             | Command::Ne(a, b)
             | Command::Gt(a, b)
@@ -631,6 +668,73 @@ impl Interpreter {
                 };
 
                 self.stack.push(Value::Bool(result_bool));
+                self.line_num += 1;
+            }
+
+            // ---------- Logic ----------
+            Command::And(a, b) | Command::Or(a, b) => {
+                let (left, right) = match (a, b) {
+                    (Some(l), Some(r)) => (l.clone(), r.clone()),
+                    (None, None) => {
+                        if self.stack.len() < 2 {
+                            return Err(InterpError::Runtime {
+                                line,
+                                message: "Not enough values on stack for logic operation"
+                                    .to_string(),
+                            });
+                        }
+                        let r = self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                            line,
+                            message: "Stack underflow".to_string(),
+                        })?;
+                        let l = self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                            line,
+                            message: "Stack underflow".to_string(),
+                        })?;
+                        (l, r)
+                    }
+                    _ => {
+                        return Err(InterpError::Syntax {
+                            line,
+                            message: "Invalid arguments for logic operation".to_string(),
+                        });
+                    }
+                };
+
+                let result = match cmd {
+                    Command::And(_, _) => left.as_bool() && right.as_bool(),
+                    Command::Or(_, _) => left.as_bool() || right.as_bool(),
+                    _ => {
+                        return Err(InterpError::Internal(
+                            "Logic operation mismatch".to_string(),
+                        ));
+                    }
+                };
+
+                self.stack.push(Value::Bool(result));
+                self.line_num += 1;
+            }
+            Command::Not(a) => {
+                let value = match a {
+                    Some(v) => v.clone(),
+                    None => {
+                        if self.stack.len() < 1 {
+                            return Err(InterpError::Runtime {
+                                line,
+                                message: "Not enough values on stack for logic operation"
+                                    .to_string(),
+                            });
+                        }
+                        self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                            line,
+                            message: "Stack underflow".to_string(),
+                        })?
+                    }
+                };
+
+                let result = !value.as_bool();
+
+                self.stack.push(Value::Bool(result));
                 self.line_num += 1;
             }
 
