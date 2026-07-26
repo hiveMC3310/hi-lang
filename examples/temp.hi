@@ -1,9 +1,6 @@
-INPUT "From C => F (1), From F => C (2): " choise
+INPUT "From C => F (1), From F => C (2): " choice
 
-EQ choise 1
-POP cond
-
-IF cond
+IF EQ choice 1
 	INPUT "Enter a temperature in C: " celsius
 
 	MUL 1.8 celsius

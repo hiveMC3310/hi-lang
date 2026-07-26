@@ -357,36 +357,73 @@ impl Interpreter {
                 }
             }
             "IF" => {
-                if tokens.len() < 2 {
-                    return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
-                        message: "IF requires a condition".to_string(),
-                    });
+                if tokens.len() == 4 {
+                    let op = tokens[1].to_uppercase();
+                    if ["EQ", "NE", "GT", "GE", "LT", "LE", "AND", "OR"].contains(&op.as_str()) {
+                        let left = Tokenizer::resolve_value(
+                            &tokens[2],
+                            &self.stack,
+                            &self.globals,
+                            self.current_locals(),
+                        )?;
+                        let right = Tokenizer::resolve_value(
+                            &tokens[3],
+                            &self.stack,
+                            &self.globals,
+                            self.current_locals(),
+                        )?;
+                        return Ok(Command::IfExpr { op, left, right });
+                    }
                 }
-                let cond = Tokenizer::resolve_value(
-                    &tokens[1],
-                    &self.stack,
-                    &self.globals,
-                    self.current_locals(),
-                )?;
-                Ok(Command::If(cond))
+                if tokens.len() == 2 {
+                    let cond = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    return Ok(Command::If(cond));
+                }
+                Err(InterpError::Syntax {
+                    line: self.line_num + 1,
+                    message: "IF requires a condition or a comparison expression (e.g., IF EQ x 1)"
+                        .to_string(),
+                })
             }
             "ELSE" => Ok(Command::Else),
             "ENDIF" => Ok(Command::Endif),
             "WHILE" => {
-                if tokens.len() < 2 {
-                    return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
-                        message: "WHILE requires a condition".to_string(),
-                    });
+                if tokens.len() == 4 {
+                    let op = tokens[1].to_uppercase();
+                    if ["EQ", "NE", "GT", "GE", "LT", "LE", "AND", "OR"].contains(&op.as_str()) {
+                        let left = Tokenizer::resolve_value(
+                            &tokens[2],
+                            &self.stack,
+                            &self.globals,
+                            self.current_locals(),
+                        )?;
+                        let right = Tokenizer::resolve_value(
+                            &tokens[3],
+                            &self.stack,
+                            &self.globals,
+                            self.current_locals(),
+                        )?;
+                        return Ok(Command::WhileExpr { op, left, right });
+                    }
                 }
-                let cond = Tokenizer::resolve_value(
-                    &tokens[1],
-                    &self.stack,
-                    &self.globals,
-                    self.current_locals(),
-                )?;
-                Ok(Command::While(cond))
+                if tokens.len() == 2 {
+                    let cond = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    return Ok(Command::While(cond));
+                }
+                Err(InterpError::Syntax {
+                    line: self.line_num + 1,
+                    message: "WHILE requires a condition".to_string(),
+                })
             }
             "DO" => Ok(Command::Do),
             "BREAK" => Ok(Command::Break),
@@ -506,7 +543,6 @@ impl Interpreter {
 
             Command::Input(prompt_opt, var) => {
                 if let Some(prompt) = prompt_opt {
-                    // Безопасный вывод приглашения
                     print!("{}", prompt);
                     std::io::stdout().flush().map_err(InterpError::Io)?;
                 }
@@ -584,7 +620,7 @@ impl Interpreter {
                     }
                     _ => {
                         return Err(InterpError::Internal(format!(
-                            "Reached invalid command in arithmetic block:: {:?}",
+                            "Reached invalid command in arithmetic block: {:?}",
                             cmd
                         )));
                     }
@@ -751,6 +787,56 @@ impl Interpreter {
                 }
             }
 
+            Command::IfExpr { op, left, right } => {
+                use std::cmp::Ordering;
+                let cmp_result = match (&left, &right) {
+                    (Value::Int(li), Value::Int(ri)) => li.cmp(ri),
+                    (Value::Int(li), Value::Float(rf)) => {
+                        (*li as f64).partial_cmp(rf).unwrap_or(Ordering::Equal)
+                    }
+                    (Value::Float(lf), Value::Int(ri)) => {
+                        lf.partial_cmp(&(*ri as f64)).unwrap_or(Ordering::Equal)
+                    }
+                    (Value::Float(lf), Value::Float(rf)) => {
+                        lf.partial_cmp(rf).unwrap_or(Ordering::Equal)
+                    }
+                    (Value::String(ls), Value::String(rs)) => ls.cmp(rs),
+                    (Value::Bool(lb), Value::Bool(rb)) => lb.cmp(rb),
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("Cannot compare {:?} and {:?}", left, right),
+                        });
+                    }
+                };
+
+                let bool_result = match op.as_str() {
+                    "EQ" => cmp_result == Ordering::Equal,
+                    "NE" => cmp_result != Ordering::Equal,
+                    "GT" => cmp_result == Ordering::Greater,
+                    "GE" => cmp_result == Ordering::Greater || cmp_result == Ordering::Equal,
+                    "LT" => cmp_result == Ordering::Less,
+                    "LE" => cmp_result == Ordering::Less || cmp_result == Ordering::Equal,
+                    "AND" => left.as_bool() && right.as_bool(),
+                    "OR" => left.as_bool() || right.as_bool(),
+                    _ => {
+                        return Err(InterpError::Internal(format!(
+                            "Unsupported operator in IF expression: {}",
+                            op
+                        )));
+                    }
+                };
+
+                if !bool_result {
+                    let target = self.if_jump_map.get(&self.line_num).ok_or_else(|| {
+                        InterpError::Internal("No matching ENDIF for IF".to_string())
+                    })?;
+                    self.line_num = target + 1;
+                } else {
+                    self.line_num += 1;
+                }
+            }
+
             Command::Else => {
                 let target = self.else_jump_map.get(&self.line_num).ok_or_else(|| {
                     InterpError::Internal("No matching ENDIF for ELSE".to_string())
@@ -771,7 +857,65 @@ impl Interpreter {
                     self.line_num = target + 1;
                 } else {
                     if let Some(do_line) = self.loop_start_map.get(&self.line_num) {
-                        let frame = self.call_stack.last_mut().unwrap();
+                        let frame = self.call_stack.last_mut().ok_or_else(|| {
+                            InterpError::Internal("No call frame available".to_string())
+                        })?;
+                        frame.active_loops.push(*do_line);
+                    }
+                    self.line_num += 1;
+                }
+            }
+
+            Command::WhileExpr { op, left, right } => {
+                use std::cmp::Ordering;
+                let cmp_result = match (&left, &right) {
+                    (Value::Int(li), Value::Int(ri)) => li.cmp(ri),
+                    (Value::Int(li), Value::Float(rf)) => {
+                        (*li as f64).partial_cmp(rf).unwrap_or(Ordering::Equal)
+                    }
+                    (Value::Float(lf), Value::Int(ri)) => {
+                        lf.partial_cmp(&(*ri as f64)).unwrap_or(Ordering::Equal)
+                    }
+                    (Value::Float(lf), Value::Float(rf)) => {
+                        lf.partial_cmp(rf).unwrap_or(Ordering::Equal)
+                    }
+                    (Value::String(ls), Value::String(rs)) => ls.cmp(rs),
+                    (Value::Bool(lb), Value::Bool(rb)) => lb.cmp(rb),
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("Cannot compare {:?} and {:?}", left, right),
+                        });
+                    }
+                };
+
+                let bool_result = match op.as_str() {
+                    "EQ" => cmp_result == Ordering::Equal,
+                    "NE" => cmp_result != Ordering::Equal,
+                    "GT" => cmp_result == Ordering::Greater,
+                    "GE" => cmp_result == Ordering::Greater || cmp_result == Ordering::Equal,
+                    "LT" => cmp_result == Ordering::Less,
+                    "LE" => cmp_result == Ordering::Less || cmp_result == Ordering::Equal,
+                    "AND" => left.as_bool() && right.as_bool(),
+                    "OR" => left.as_bool() || right.as_bool(),
+                    _ => {
+                        return Err(InterpError::Internal(format!(
+                            "Unsupported operator in WHILE expression: {}",
+                            op
+                        )));
+                    }
+                };
+
+                if !bool_result {
+                    let target = self.loop_start_map.get(&self.line_num).ok_or_else(|| {
+                        InterpError::Internal("No matching DO for WHILE".to_string())
+                    })?;
+                    self.line_num = target + 1;
+                } else {
+                    if let Some(do_line) = self.loop_start_map.get(&self.line_num) {
+                        let frame = self.call_stack.last_mut().ok_or_else(|| {
+                            InterpError::Internal("No call frame available".to_string())
+                        })?;
                         frame.active_loops.push(*do_line);
                     }
                     self.line_num += 1;
@@ -783,19 +927,27 @@ impl Interpreter {
                     InterpError::Internal("DO without matching WHILE".to_string())
                 })?;
 
-                if let Some(&last) = self.call_stack.last_mut().unwrap().active_loops.last()
-                    && last == self.line_num
-                {
-                    self.call_stack.last_mut().unwrap().active_loops.pop();
+                let frame = self
+                    .call_stack
+                    .last_mut()
+                    .ok_or_else(|| InterpError::Internal("No call frame available".to_string()))?;
+
+                if let Some(&last) = frame.active_loops.last() {
+                    if last == self.line_num {
+                        frame.active_loops.pop();
+                    }
                 }
+
                 self.line_num = *target;
             }
 
             Command::Break => {
-                let do_line = self
+                let frame = self
                     .call_stack
                     .last_mut()
-                    .unwrap()
+                    .ok_or_else(|| InterpError::Internal("No call frame available".to_string()))?;
+
+                let do_line = frame
                     .active_loops
                     .pop()
                     .ok_or_else(|| InterpError::Runtime {

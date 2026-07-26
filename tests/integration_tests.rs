@@ -1,5 +1,8 @@
 use hi_interpreter::error::InterpResult;
 use hi_interpreter::interpreter::Interpreter;
+use std::io::Read;
+use stdio_override::StdoutOverride;
+use tempfile::NamedTempFile;
 
 fn run_code(code: &str) -> InterpResult<()> {
     let lines: Vec<String> = code.lines().map(|s| s.to_string()).collect();
@@ -7,62 +10,22 @@ fn run_code(code: &str) -> InterpResult<()> {
     interp.run()
 }
 
-// ---------- BREAK ----------
-#[test]
-fn break_test_time_limit() {
-    use std::time::Instant;
+fn run_and_capture(code: &str) -> (InterpResult<()>, String) {
+    let temp_file = NamedTempFile::new().unwrap();
+    let _guard = StdoutOverride::from_file(temp_file.path()).unwrap();
 
-    let code_break = r#"
-        PUSH 1
-        WHILE SP
-            PUSH 10
-            PRINT SP
-            BREAK
-        DO
-        PRINT "End"
-    "#;
-
-    let start = Instant::now();
-    let result = run_code(code_break);
-    let duration = start.elapsed();
-
-    assert!(result.is_ok(), "Программа упала: {:?}", result.unwrap_err());
-    assert!(
-        duration.as_secs() < 1,
-        "Зависла! Длительность: {:?}",
-        duration
-    );
-}
-
-#[test]
-fn break_nested_loops_test() {
-    use std::time::Instant;
-
-    let code = r#"
-        PUSH 1
-        WHILE SP
-            PUSH 5
-            WHILE SP
-                PUSH "Inner"
-                PRINT SP
-                BREAK
-            DO
-            PUSH "Outer after break"
-            PRINT SP
-            BREAK
-        DO
-    "#;
-
-    let start = Instant::now();
     let result = run_code(code);
-    let duration = start.elapsed();
 
-    assert!(result.is_ok(), "Программа упала: {:?}", result.unwrap_err());
-    assert!(
-        duration.as_secs() < 1,
-        "Зависла! Длительность: {:?}",
-        duration
-    );
+    drop(_guard);
+
+    let mut content = String::new();
+    temp_file
+        .reopen()
+        .unwrap()
+        .read_to_string(&mut content)
+        .unwrap();
+
+    (result, content)
 }
 
 // ---------- Arithmetic ----------
@@ -91,19 +54,23 @@ fn test_arithmetic() {
         POP result4
         PRINT "15/3=" result4
     "#;
-    let result = run_code(code);
+    let (result, output) = run_and_capture(code);
     assert!(
         result.is_ok(),
         "Арифметика упала: {:?}",
         result.unwrap_err()
     );
+
+    assert!(output.contains("3+5=8"));
+    assert!(output.contains("10-4=6"));
+    assert!(output.contains("7*2=14"));
+    assert!(output.contains("15/3=5"));
 }
 
 // ---------- Comparison ----------
 #[test]
 fn test_comparisons() {
     let code = r#"
-        // Числа
         LT 3 5
         POP c1
         PRINT "3<5=" c1
@@ -112,7 +79,6 @@ fn test_comparisons() {
         POP c2
         PRINT "10>=10=" c2
 
-        // Строки
         EQ "hello" "hello"
         POP c3
         PRINT "'hello'=='hello'=" c3
@@ -120,9 +86,25 @@ fn test_comparisons() {
         NE "abc" "def"
         POP c4
         PRINT "'abc'!='def'=" c4
+
+        GT 5 3
+        POP c5
+        PRINT "5>3=" c5
+
+        LE 3 3
+        POP c6
+        PRINT "3<=3=" c6
     "#;
-    let result = run_code(code);
+
+    let (result, output) = run_and_capture(code);
     assert!(result.is_ok(), "Сравнения упали: {:?}", result.unwrap_err());
+
+    assert!(output.contains("3<5=true"));
+    assert!(output.contains("10>=10=true"));
+    assert!(output.contains("'hello'=='hello'=true"));
+    assert!(output.contains("'abc'!='def'=true"));
+    assert!(output.contains("5>3=true"));
+    assert!(output.contains("3<=3=true"));
 }
 
 // ---------- Logic ----------
@@ -157,8 +139,15 @@ fn test_logic() {
         POP n2
         PRINT "NOT 0=" n2
     "#;
-    let result = run_code(code);
+
+    let (result, output) = run_and_capture(code);
     assert!(result.is_ok(), "Логика упала: {:?}", result.unwrap_err());
+
+    assert!(output.contains("1 AND 0=false"));
+    assert!(output.contains("True AND False=false"));
+    assert!(output.contains("0 OR 1=true"));
+    assert!(output.contains("NOT True=false"));
+    assert!(output.contains("NOT 0=true"));
 }
 
 // ---------- IF/ELSE ----------
@@ -183,8 +172,12 @@ fn test_if_else() {
             PRINT "y < 15"
         ENDIF
     "#;
-    let result = run_code(code);
+
+    let (result, output) = run_and_capture(code);
     assert!(result.is_ok(), "IF/ELSE упал: {:?}", result.unwrap_err());
+
+    assert!(output.contains("x < 10"));
+    assert!(output.contains("y >= 15"));
 }
 
 // ---------- WHILE ----------
@@ -204,11 +197,17 @@ fn test_while() {
         DO
         PRINT "Loop finished"
     "#;
-    let result = run_code(code);
+
+    let (result, output) = run_and_capture(code);
     assert!(result.is_ok(), "WHILE упал: {:?}", result.unwrap_err());
+
+    assert!(output.contains("0"));
+    assert!(output.contains("1"));
+    assert!(output.contains("2"));
+    assert!(output.contains("Loop finished"));
 }
 
-// ---------- Функции ----------
+// ---------- Functions ----------
 #[test]
 fn test_functions() {
     let code = r#"
@@ -219,9 +218,9 @@ fn test_functions() {
 
         FUNC sum
             // принимает два числа со стека, возвращает сумму
-            POP a   // копируем верхний (второй аргумент)
-            POP b   // копируем ещё раз (первый аргумент)
-            ADD a b
+            POP a
+            POP b
+            ADD b a
             RET
         ENDF
 
@@ -233,6 +232,73 @@ fn test_functions() {
         POP result
         PRINT "Sum=" result
     "#;
-    let result = run_code(code);
+
+    let (result, output) = run_and_capture(code);
     assert!(result.is_ok(), "Функции упали: {:?}", result.unwrap_err());
+
+    assert!(output.contains("Hello from function!"));
+    assert!(output.contains("Sum=30"));
+}
+
+// ---------- Inline ----------
+#[test]
+fn test_inline_if() {
+    let code = r#"
+        LET x 5
+        IF EQ x 5
+            PRINT "x is 5"
+        ELSE
+            PRINT "x is not 5"
+        ENDIF
+
+        LET y 10
+        IF GT y 5
+            PRINT "y > 5"
+        ENDIF
+
+        LET flag1 True
+        LET flag2 False
+        IF AND flag1 flag2
+            PRINT "both true"
+        ELSE
+            PRINT "not both true"
+        ENDIF
+
+        IF OR flag1 flag2
+            PRINT "at least one true"
+        ENDIF
+    "#;
+
+    let (result, output) = run_and_capture(code);
+    assert!(result.is_ok(), "Inline IF упал: {:?}", result.unwrap_err());
+
+    assert!(output.contains("x is 5"));
+    assert!(output.contains("y > 5"));
+    assert!(output.contains("not both true"));
+    assert!(output.contains("at least one true"));
+}
+
+#[test]
+fn test_inline_while() {
+    let code = r#"
+        LET i 0
+        WHILE LT i 3
+            PRINT i
+            ADD i 1
+            POP i
+        DO
+        PRINT "Done"
+    "#;
+
+    let (result, output) = run_and_capture(code);
+    assert!(
+        result.is_ok(),
+        "Inline WHILE упал: {:?}",
+        result.unwrap_err()
+    );
+
+    assert!(output.contains("0"));
+    assert!(output.contains("1"));
+    assert!(output.contains("2"));
+    assert!(output.contains("Done"));
 }

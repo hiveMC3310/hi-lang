@@ -64,10 +64,10 @@ Comments start with `//` and extend to the end of the line.
 | `ADD`, `SUB`, `MUL`, `DIV`         | Arithmetic operations. They can be used in two ways: <br> • **Without arguments**: pops two values from the stack and pushes the result. <br> • **With two arguments**: e.g., `ADD 3 5` computes 3+5 and pushes the result.                                          |
 | `EQ`, `NE`, `GT`, `GE`, `LT`, `LE` | Comparison operators. They return a boolean (`True` or `False`). Same usage as arithmetic.                                                                                                                                                                           |
 | `AND`, `OR`, `NOT`                 | Logical operators. They can be used with arguments or from the stack (for binary operators). `NOT` works with one argument or one stack value. All values are converted to booleans using Hi semantics (0, empty string, false → `False`; everything else → `True`). |
-| `IF condition`                     | Starts a conditional block. If the condition is **false**, execution jumps to the matching `ELSE` (if present) or directly to `ENDIF`.                                                                                                                               |
+| `IF condition`                     | Starts a conditional block. If the condition is **false**, jumps to `ELSE` (if present) or `ENDIF`. <br> • **Classic**: `POP cond; IF cond` <br> • **Inline**: `IF EQ x 5`, `IF AND flag1 flag2` – condition is evaluated directly without touching the stack.       |
 | `ELSE`                             | Marks the start of the alternative block. Executed only if the preceding `IF` condition was **false**. After executing this block, execution jumps to the matching `ENDIF`.                                                                                          |
 | `ENDIF`                            | Marks the end of an `IF`/`ELSE` block.                                                                                                                                                                                                                               |
-| `WHILE condition`                  | If the condition is **false**, jumps to the matching `DO`. Otherwise, enters the loop.                                                                                                                                                                               |
+| `WHILE condition`                  | If the condition is **false**, jumps to `DO`. <br> • **Classic**: `POP cond; WHILE cond` <br> • **Inline**: `WHILE LT i 10` – condition evaluated directly.                                                                                                          |
 | `DO`                               | Marks the end of a `WHILE` block. Jumps back to the corresponding `WHILE`.                                                                                                                                                                                           |
 | `BREAK`                            | Immediately exits the innermost `WHILE` loop.                                                                                                                                                                                                                        |
 | `FUNC name`                        | Defines a function. The function body is executed when `CALL`ed.                                                                                                                                                                                                     |
@@ -207,6 +207,22 @@ IF cond
 ELSE
     PRINT "Minor"
 ENDIF
+```
+
+### Inline conditions (v1.1.0+)
+
+```hi
+LET x 5
+IF EQ x 5
+    PRINT "x is 5"
+ENDIF
+
+LET i 0
+WHILE LT i 3
+    PRINT i
+    ADD i 1
+    POP i
+DO
 ```
 
 ---
