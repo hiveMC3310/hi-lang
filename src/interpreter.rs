@@ -285,7 +285,7 @@ impl Interpreter {
                 Ok(Command::Input(prompt, var))
             }
             "ADD" | "SUB" | "MUL" | "DIV" | "EQ" | "NE" | "GT" | "GE" | "LT" | "LE" | "AND"
-            | "OR" => {
+            | "OR" | "MOD" | "POW" => {
                 let op = match cmd_str.as_str() {
                     "ADD" => BinOp::Add,
                     "SUB" => BinOp::Sub,
@@ -299,6 +299,8 @@ impl Interpreter {
                     "LE" => BinOp::Le,
                     "AND" => BinOp::And,
                     "OR" => BinOp::Or,
+                    "MOD" => BinOp::Mod,
+                    "POW" => BinOp::Pow,
                     _ => unreachable!(),
                 };
                 let (left, right) = self.parse_binary_args(tokens)?;
@@ -701,6 +703,81 @@ impl Interpreter {
                 }
                 Self::apply_arithmetic(left, right, |x, y| x / y, |x, y| x / y, line)
             }
+            BinOp::Mod => {
+                if crate::utils::is_zero(right) {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: "Modulo by zero".to_string(),
+                    });
+                }
+                match (left, right) {
+                    (Value::Int(ai), Value::Int(bi)) => Ok(Value::Int(ai % bi)),
+                    _ => {
+                        let af = match left {
+                            Value::Int(i) => *i as f64,
+                            Value::Float(f) => *f,
+                            _ => {
+                                return Err(InterpError::Runtime {
+                                    line,
+                                    message: "Operands must be numbers".to_string(),
+                                });
+                            }
+                        };
+                        let bf = match right {
+                            Value::Int(i) => *i as f64,
+                            Value::Float(f) => *f,
+                            _ => {
+                                return Err(InterpError::Runtime {
+                                    line,
+                                    message: "Operands must be numbers".to_string(),
+                                });
+                            }
+                        };
+                        Ok(Value::Float(af % bf))
+                    }
+                }
+            }
+            BinOp::Pow => match (left, right) {
+                (Value::Int(ai), Value::Int(bi)) => {
+                    if *bi < 0 {
+                        let af = *ai as f64;
+                        let bf = *bi as f64;
+                        Ok(Value::Float(af.powf(bf)))
+                    } else {
+                        match ai.checked_pow(*bi as u32) {
+                            Some(result) => Ok(Value::Int(result)),
+                            None => {
+                                let af = *ai as f64;
+                                let bf = *bi as f64;
+                                Ok(Value::Float(af.powf(bf)))
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    let af = match left {
+                        Value::Int(i) => *i as f64,
+                        Value::Float(f) => *f,
+                        _ => {
+                            return Err(InterpError::Runtime {
+                                line,
+                                message: "Operands must be numbers".to_string(),
+                            });
+                        }
+                    };
+                    let bf = match right {
+                        Value::Int(i) => *i as f64,
+                        Value::Float(f) => *f,
+                        _ => {
+                            return Err(InterpError::Runtime {
+                                line,
+                                message: "Operands must be numbers".to_string(),
+                            });
+                        }
+                    };
+                    Ok(Value::Float(af.powf(bf)))
+                }
+            },
             _ => {
                 let bool_result = Self::evaluate_binary_op_bool(op, left, right, line)?;
                 Ok(Value::Bool(bool_result))

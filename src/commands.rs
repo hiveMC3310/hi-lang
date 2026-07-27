@@ -52,4 +52,6 @@ pub enum BinOp {
     Le,
     And,
     Or,
+    Mod,
+    Pow,
 }

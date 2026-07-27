@@ -66,6 +66,32 @@ fn test_arithmetic() {
     assert!(output.contains("7*2=14"));
     assert!(output.contains("15/3=5"));
 }
+#[test]
+fn test_mod_pow() {
+    let code = r#"
+        MOD 10 3
+        POP m
+        PRINT "10%3=" m
+
+        POW 2 3
+        POP p1
+        PRINT "2^3=" p1
+
+        POW 2 -1
+        POP p2
+        PRINT "2^-1=" p2
+
+        MOD 5.5 2.0
+        POP m2
+        PRINT "5.5%2.0=" m2
+    "#;
+    let (result, output) = run_and_capture(code);
+    assert!(result.is_ok(), "MOD/POW failed: {:?}", result.unwrap_err());
+    assert!(output.contains("10%3=1"));
+    assert!(output.contains("2^3=8"));
+    assert!(output.contains("2^-1=0.5"));
+    assert!(output.contains("5.5%2.0=1.5")); // float modulo
+}
 
 // ---------- Comparison ----------
 #[test]
