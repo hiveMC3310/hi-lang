@@ -370,3 +370,36 @@ fn test_string_methods() {
     assert!(output.contains("lower=hello"));
     assert!(output.contains("trim=hello"));
 }
+
+// ---------- List ----------
+#[test]
+fn test_lists() {
+    let code = r#"
+        LIST 1 2 3 4
+        POP mylist
+        PRINT "List: " mylist
+
+        LEN mylist
+        POP len
+        PRINT "Length: " len
+
+        INDEX mylist 2
+        POP third
+        PRINT "Third element: " third
+
+        APPEND mylist 42
+        POP newlist
+        PRINT "New list: " newlist
+
+        LEN newlist
+        POP newlen
+        PRINT "New length: " newlen
+    "#;
+    let (result, output) = run_and_capture(code);
+    assert!(result.is_ok(), "Lists failed: {:?}", result.unwrap_err());
+    assert!(output.contains("List: [1, 2, 3, 4]"));
+    assert!(output.contains("Length: 4"));
+    assert!(output.contains("Third element: 3"));
+    assert!(output.contains("New list: [1, 2, 3, 4, 42]"));
+    assert!(output.contains("New length: 5"));
+}

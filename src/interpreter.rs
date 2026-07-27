@@ -611,6 +611,61 @@ impl Interpreter {
                     })
                 }
             }
+            "LIST" => {
+                let mut elements = Vec::new();
+                for token in &tokens[1..] {
+                    let val = Tokenizer::resolve_value(
+                        token,
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    elements.push(val);
+                }
+                Ok(Command::List(elements))
+            }
+            "INDEX" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "INDEX requires two arguments: list and index".to_string(),
+                    });
+                }
+                let list_val = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let idx_val = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Index(list_val, idx_val))
+            }
+            "APPEND" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "APPEND requires two arguments: list and element".to_string(),
+                    });
+                }
+                let list_val = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let el_val = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Append(list_val, el_val))
+            }
             _ => Err(InterpError::Syntax {
                 line: self.line_num + 1,
                 message: format!("Unknown command '{}'", cmd_str),
@@ -1123,8 +1178,9 @@ impl Interpreter {
                         message: "Stack underflow in LEN".to_string(),
                     })?,
                 };
-                let result = match val {
+                let result = match &val {
                     Value::String(s) => Value::Int(s.len() as i64),
+                    Value::List(vec) => Value::Int(vec.len() as i64),
                     _ => {
                         return Err(InterpError::Runtime {
                             line,
@@ -1311,6 +1367,57 @@ impl Interpreter {
                     }
                 };
                 self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::List(elements) => {
+                self.stack.push(Value::List(elements.clone()));
+                self.line_num += 1;
+            }
+
+            Command::Index(list_val, idx_val) => {
+                let list = match list_val {
+                    Value::List(vec) => vec,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("INDEX requires a list, got {:?}", list_val),
+                        });
+                    }
+                };
+                let idx = match idx_val {
+                    Value::Int(i) => *i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("INDEX index must be integer, got {:?}", idx_val),
+                        });
+                    }
+                };
+                if idx < 0 || idx >= list.len() as i64 {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: format!("Index {} out of bounds (len={})", idx, list.len()),
+                    });
+                }
+                let element = list[idx as usize].clone();
+                self.stack.push(element);
+                self.line_num += 1;
+            }
+
+            Command::Append(list_val, el_val) => {
+                let list = match list_val {
+                    Value::List(vec) => vec,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("APPEND requires a list, got {:?}", list_val),
+                        });
+                    }
+                };
+                let mut new_list = list.clone();
+                new_list.push(el_val.clone());
+                self.stack.push(Value::List(new_list));
                 self.line_num += 1;
             }
         }

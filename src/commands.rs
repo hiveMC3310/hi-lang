@@ -36,6 +36,10 @@ pub enum Command {
     Upper(Option<Value>),
     Lower(Option<Value>),
     Trim(Option<Value>),
+
+    List(Vec<Value>),
+    Index(Value, Value),
+    Append(Value, Value),
 }
 
 #[derive(Debug, Clone)]
