@@ -302,3 +302,45 @@ fn test_inline_while() {
     assert!(output.contains("2"));
     assert!(output.contains("Done"));
 }
+
+// ---------- String methods ----------
+#[test]
+fn test_string_methods() {
+    let code = r#"
+        LEN "hello"
+        POP len
+        PRINT "len=" len
+
+        CONCAT "Hello" " World"
+        POP concat
+        PRINT "concat=" concat
+
+        SUBSTR "Hello, world!" 7 5
+        POP substr
+        PRINT "substr=" substr
+
+        UPPER "hello"
+        POP up
+        PRINT "upper=" up
+
+        LOWER "HELLO"
+        POP low
+        PRINT "lower=" low
+
+        TRIM "  hello  "
+        POP trim
+        PRINT "trim=" trim
+    "#;
+    let (result, output) = run_and_capture(code);
+    assert!(
+        result.is_ok(),
+        "Методы строк упали: {:?}",
+        result.unwrap_err()
+    );
+    assert!(output.contains("len=5"));
+    assert!(output.contains("concat=Hello World"));
+    assert!(output.contains("substr=world"));
+    assert!(output.contains("upper=HELLO"));
+    assert!(output.contains("lower=hello"));
+    assert!(output.contains("trim=hello"));
+}

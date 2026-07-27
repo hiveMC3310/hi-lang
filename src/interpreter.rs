@@ -1,6 +1,6 @@
 //! Core interpreter: runs Hi programs.
 
-use crate::commands::Command;
+use crate::commands::{BinOp, Command};
 use crate::error::{InterpError, InterpResult};
 use crate::tokenizer::Tokenizer;
 use crate::value::Value;
@@ -284,53 +284,25 @@ impl Interpreter {
                 };
                 Ok(Command::Input(prompt, var))
             }
-            "ADD" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Add(a, b))
-            }
-            "SUB" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Sub(a, b))
-            }
-            "MUL" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Mul(a, b))
-            }
-            "DIV" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Div(a, b))
-            }
-            "EQ" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Eq(a, b))
-            }
-            "NE" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Ne(a, b))
-            }
-            "GT" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Gt(a, b))
-            }
-            "GE" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Ge(a, b))
-            }
-            "LT" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Lt(a, b))
-            }
-            "LE" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Le(a, b))
-            }
-            "AND" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::And(a, b))
-            }
-            "OR" => {
-                let (a, b) = self.parse_binary_args(tokens)?;
-                Ok(Command::Or(a, b))
+            "ADD" | "SUB" | "MUL" | "DIV" | "EQ" | "NE" | "GT" | "GE" | "LT" | "LE" | "AND"
+            | "OR" => {
+                let op = match cmd_str.as_str() {
+                    "ADD" => BinOp::Add,
+                    "SUB" => BinOp::Sub,
+                    "MUL" => BinOp::Mul,
+                    "DIV" => BinOp::Div,
+                    "EQ" => BinOp::Eq,
+                    "NE" => BinOp::Ne,
+                    "GT" => BinOp::Gt,
+                    "GE" => BinOp::Ge,
+                    "LT" => BinOp::Lt,
+                    "LE" => BinOp::Le,
+                    "AND" => BinOp::And,
+                    "OR" => BinOp::Or,
+                    _ => unreachable!(),
+                };
+                let (left, right) = self.parse_binary_args(tokens)?;
+                Ok(Command::Binary(op, left, right))
             }
             "NOT" => {
                 if tokens.len() == 1 {
@@ -358,8 +330,9 @@ impl Interpreter {
             }
             "IF" => {
                 if tokens.len() == 4 {
-                    let op = tokens[1].to_uppercase();
-                    if ["EQ", "NE", "GT", "GE", "LT", "LE", "AND", "OR"].contains(&op.as_str()) {
+                    let op_str = tokens[1].to_uppercase();
+                    if ["EQ", "NE", "GT", "GE", "LT", "LE", "AND", "OR"].contains(&op_str.as_str())
+                    {
                         let left = Tokenizer::resolve_value(
                             &tokens[2],
                             &self.stack,
@@ -372,7 +345,20 @@ impl Interpreter {
                             &self.globals,
                             self.current_locals(),
                         )?;
-                        return Ok(Command::IfExpr { op, left, right });
+                        let op = match op_str.as_str() {
+                            "EQ" => BinOp::Eq,
+                            "NE" => BinOp::Ne,
+                            "GT" => BinOp::Gt,
+                            "GE" => BinOp::Ge,
+                            "LT" => BinOp::Lt,
+                            "LE" => BinOp::Le,
+                            "AND" => BinOp::And,
+                            "OR" => BinOp::Or,
+                            _ => unreachable!(),
+                        };
+                        let bool_result =
+                            Self::evaluate_binary_op_bool(op, &left, &right, self.line_num + 1)?;
+                        return Ok(Command::If(Value::Bool(bool_result)));
                     }
                 }
                 if tokens.len() == 2 {
@@ -394,8 +380,9 @@ impl Interpreter {
             "ENDIF" => Ok(Command::Endif),
             "WHILE" => {
                 if tokens.len() == 4 {
-                    let op = tokens[1].to_uppercase();
-                    if ["EQ", "NE", "GT", "GE", "LT", "LE", "AND", "OR"].contains(&op.as_str()) {
+                    let op_str = tokens[1].to_uppercase();
+                    if ["EQ", "NE", "GT", "GE", "LT", "LE", "AND", "OR"].contains(&op_str.as_str())
+                    {
                         let left = Tokenizer::resolve_value(
                             &tokens[2],
                             &self.stack,
@@ -408,7 +395,20 @@ impl Interpreter {
                             &self.globals,
                             self.current_locals(),
                         )?;
-                        return Ok(Command::WhileExpr { op, left, right });
+                        let op = match op_str.as_str() {
+                            "EQ" => BinOp::Eq,
+                            "NE" => BinOp::Ne,
+                            "GT" => BinOp::Gt,
+                            "GE" => BinOp::Ge,
+                            "LT" => BinOp::Lt,
+                            "LE" => BinOp::Le,
+                            "AND" => BinOp::And,
+                            "OR" => BinOp::Or,
+                            _ => unreachable!(),
+                        };
+                        let bool_result =
+                            Self::evaluate_binary_op_bool(op, &left, &right, self.line_num + 1)?;
+                        return Ok(Command::While(Value::Bool(bool_result)));
                     }
                 }
                 if tokens.len() == 2 {
@@ -447,6 +447,168 @@ impl Interpreter {
                 }
                 Ok(Command::Call(tokens[1].clone()))
             }
+            "LEN" => {
+                if tokens.len() == 2 {
+                    let val = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    Ok(Command::Len(Some(val)))
+                } else if tokens.len() == 1 {
+                    if self.stack.is_empty() {
+                        return Err(InterpError::Semantic {
+                            line: self.line_num + 1,
+                            message: "LEN requires a value on stack".to_string(),
+                        });
+                    }
+                    Ok(Command::Len(None))
+                } else {
+                    Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "LEN takes 0 or 1 argument".to_string(),
+                    })
+                }
+            }
+            "CONCAT" => {
+                if tokens.len() == 3 {
+                    let a = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    let b = Tokenizer::resolve_value(
+                        &tokens[2],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    Ok(Command::Concat(Some(a), Some(b)))
+                } else if tokens.len() == 1 {
+                    if self.stack.len() < 2 {
+                        return Err(InterpError::Semantic {
+                            line: self.line_num + 1,
+                            message: "CONCAT requires two values on stack".to_string(),
+                        });
+                    }
+                    Ok(Command::Concat(None, None))
+                } else {
+                    Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "CONCAT takes 0 or 2 arguments".to_string(),
+                    })
+                }
+            }
+            "SUBSTR" => {
+                if tokens.len() == 4 {
+                    let s = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    let start = Tokenizer::resolve_value(
+                        &tokens[2],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    let len = Tokenizer::resolve_value(
+                        &tokens[3],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    Ok(Command::Substr(Some(s), Some(start), Some(len)))
+                } else if tokens.len() == 1 {
+                    if self.stack.len() < 3 {
+                        return Err(InterpError::Semantic {
+                            line: self.line_num + 1,
+                            message: "SUBSTR requires three values on stack".to_string(),
+                        });
+                    }
+                    Ok(Command::Substr(None, None, None))
+                } else {
+                    Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "SUBSTR takes 0 or 3 arguments".to_string(),
+                    })
+                }
+            }
+            "UPPER" => {
+                if tokens.len() == 2 {
+                    let val = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    Ok(Command::Upper(Some(val)))
+                } else if tokens.len() == 1 {
+                    if self.stack.is_empty() {
+                        return Err(InterpError::Semantic {
+                            line: self.line_num + 1,
+                            message: "UPPER requires a value on stack".to_string(),
+                        });
+                    }
+                    Ok(Command::Upper(None))
+                } else {
+                    Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "UPPER takes 0 or 1 argument".to_string(),
+                    })
+                }
+            }
+            "LOWER" => {
+                if tokens.len() == 2 {
+                    let val = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    Ok(Command::Lower(Some(val)))
+                } else if tokens.len() == 1 {
+                    if self.stack.is_empty() {
+                        return Err(InterpError::Semantic {
+                            line: self.line_num + 1,
+                            message: "LOWER requires a value on stack".to_string(),
+                        });
+                    }
+                    Ok(Command::Lower(None))
+                } else {
+                    Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "LOWER takes 0 or 1 argument".to_string(),
+                    })
+                }
+            }
+            "TRIM" => {
+                if tokens.len() == 2 {
+                    let val = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    Ok(Command::Trim(Some(val)))
+                } else if tokens.len() == 1 {
+                    if self.stack.is_empty() {
+                        return Err(InterpError::Semantic {
+                            line: self.line_num + 1,
+                            message: "TRIM requires a value on stack".to_string(),
+                        });
+                    }
+                    Ok(Command::Trim(None))
+                } else {
+                    Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "TRIM takes 0 or 1 argument".to_string(),
+                    })
+                }
+            }
             _ => Err(InterpError::Syntax {
                 line: self.line_num + 1,
                 message: format!("Unknown command '{}'", cmd_str),
@@ -483,6 +645,163 @@ impl Interpreter {
                 line: self.line_num + 1,
                 message: "Invalid arguments for binary operation".to_string(),
             })
+        }
+    }
+
+    /// Resolves binary operands from Option<Value> or from the stack.
+    fn resolve_binary_args(
+        &mut self,
+        a_opt: &Option<Value>,
+        b_opt: &Option<Value>,
+        line: usize,
+    ) -> InterpResult<(Value, Value)> {
+        match (a_opt, b_opt) {
+            (Some(l), Some(r)) => Ok((l.clone(), r.clone())),
+            (None, None) => {
+                if self.stack.len() < 2 {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: "Not enough values on stack for operation".to_string(),
+                    });
+                }
+                let r = self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                    line,
+                    message: "Stack underflow".to_string(),
+                })?;
+                let l = self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                    line,
+                    message: "Stack underflow".to_string(),
+                })?;
+                Ok((l, r))
+            }
+            _ => Err(InterpError::Syntax {
+                line,
+                message: "Invalid arguments for binary operation".to_string(),
+            }),
+        }
+    }
+
+    /// Evaluates a binary operation and returns a Value (for arithmetic, comparison, logic).
+    fn evaluate_binary_op(
+        op: BinOp,
+        left: &Value,
+        right: &Value,
+        line: usize,
+    ) -> InterpResult<Value> {
+        match op {
+            BinOp::Add => Self::apply_arithmetic(left, right, |x, y| x + y, |x, y| x + y, line),
+            BinOp::Sub => Self::apply_arithmetic(left, right, |x, y| x - y, |x, y| x - y, line),
+            BinOp::Mul => Self::apply_arithmetic(left, right, |x, y| x * y, |x, y| x * y, line),
+            BinOp::Div => {
+                if crate::utils::is_zero(right) {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: "Division by zero".to_string(),
+                    });
+                }
+                Self::apply_arithmetic(left, right, |x, y| x / y, |x, y| x / y, line)
+            }
+            _ => {
+                let bool_result = Self::evaluate_binary_op_bool(op, left, right, line)?;
+                Ok(Value::Bool(bool_result))
+            }
+        }
+    }
+
+    /// Evaluates a binary operation that yields a boolean (comparisons and logical AND/OR).
+    fn evaluate_binary_op_bool(
+        op: BinOp,
+        left: &Value,
+        right: &Value,
+        line: usize,
+    ) -> InterpResult<bool> {
+        match op {
+            BinOp::Eq | BinOp::Ne | BinOp::Gt | BinOp::Ge | BinOp::Lt | BinOp::Le => {
+                Self::compare_values(left, right, op, line)
+            }
+            BinOp::And => Ok(left.as_bool() && right.as_bool()),
+            BinOp::Or => Ok(left.as_bool() || right.as_bool()),
+            _ => Err(InterpError::Internal(format!(
+                "Non-boolean operation: {:?}",
+                op
+            ))),
+        }
+    }
+
+    /// Compares two values according to the comparison operator.
+    fn compare_values(left: &Value, right: &Value, op: BinOp, line: usize) -> InterpResult<bool> {
+        use std::cmp::Ordering;
+        let cmp_result = match (left, right) {
+            (Value::Int(li), Value::Int(ri)) => Some(li.cmp(ri)),
+            (Value::Int(li), Value::Float(rf)) => {
+                Some((*li as f64).partial_cmp(rf).unwrap_or(Ordering::Equal))
+            }
+            (Value::Float(lf), Value::Int(ri)) => {
+                Some(lf.partial_cmp(&(*ri as f64)).unwrap_or(Ordering::Equal))
+            }
+            (Value::Float(lf), Value::Float(rf)) => {
+                Some(lf.partial_cmp(rf).unwrap_or(Ordering::Equal))
+            }
+            (Value::String(ls), Value::String(rs)) => Some(ls.cmp(rs)),
+            (Value::Bool(lb), Value::Bool(rb)) => Some(lb.cmp(rb)),
+            _ => None,
+        };
+
+        match (op, cmp_result) {
+            (BinOp::Eq, Some(ord)) => Ok(ord == Ordering::Equal),
+            (BinOp::Ne, Some(ord)) => Ok(ord != Ordering::Equal),
+            (BinOp::Gt, Some(ord)) => Ok(ord == Ordering::Greater),
+            (BinOp::Ge, Some(ord)) => Ok(ord == Ordering::Greater || ord == Ordering::Equal),
+            (BinOp::Lt, Some(ord)) => Ok(ord == Ordering::Less),
+            (BinOp::Le, Some(ord)) => Ok(ord == Ordering::Less || ord == Ordering::Equal),
+            _ => Err(InterpError::Runtime {
+                line,
+                message: format!("Cannot compare values of types {:?} and {:?}", left, right),
+            }),
+        }
+    }
+
+    /// Helper to apply arithmetic operations on two Values.
+    fn apply_arithmetic<FInt, FFloat>(
+        a: &Value,
+        b: &Value,
+        op_int: FInt,
+        op_float: FFloat,
+        line: usize,
+    ) -> InterpResult<Value>
+    where
+        FInt: Fn(i64, i64) -> i64,
+        FFloat: Fn(f64, f64) -> f64,
+    {
+        match (a, b) {
+            (Value::Int(ai), Value::Int(bi)) => {
+                let result = op_int(*ai, *bi);
+                Ok(Value::Int(result))
+            }
+            _ => {
+                let af = match a {
+                    Value::Int(i) => *i as f64,
+                    Value::Float(f) => *f,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: "Operands must be numbers".to_string(),
+                        });
+                    }
+                };
+                let bf = match b {
+                    Value::Int(i) => *i as f64,
+                    Value::Float(f) => *f,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: "Operands must be numbers".to_string(),
+                        });
+                    }
+                };
+                let result = op_float(af, bf);
+                Ok(Value::Float(result))
+            }
         }
     }
 
@@ -570,186 +889,14 @@ impl Interpreter {
                 self.line_num += 1;
             }
 
-            // ---------- Arithmetic ----------
-            Command::Add(a, b) | Command::Sub(a, b) | Command::Mul(a, b) | Command::Div(a, b) => {
-                let (left, right) = match (a, b) {
-                    (Some(l), Some(r)) => (l.clone(), r.clone()),
-                    (None, None) => {
-                        if self.stack.len() < 2 {
-                            return Err(InterpError::Runtime {
-                                line,
-                                message: "Not enough values on stack for operation".to_string(),
-                            });
-                        }
-                        let r = self.stack.pop().ok_or_else(|| InterpError::Runtime {
-                            line,
-                            message: "Stack underflow".to_string(),
-                        })?;
-                        let l = self.stack.pop().ok_or_else(|| InterpError::Runtime {
-                            line,
-                            message: "Stack underflow".to_string(),
-                        })?;
-                        (l, r)
-                    }
-                    _ => {
-                        return Err(InterpError::Syntax {
-                            line,
-                            message: "Invalid arguments for binary operation".to_string(),
-                        });
-                    }
-                };
-
-                let result = match cmd {
-                    Command::Add(_, _) => {
-                        Self::apply_arithmetic(&left, &right, |x, y| x + y, |x, y| x + y, line)?
-                    }
-                    Command::Sub(_, _) => {
-                        Self::apply_arithmetic(&left, &right, |x, y| x - y, |x, y| x - y, line)?
-                    }
-                    Command::Mul(_, _) => {
-                        Self::apply_arithmetic(&left, &right, |x, y| x * y, |x, y| x * y, line)?
-                    }
-                    Command::Div(_, _) => {
-                        if crate::utils::is_zero(&right) {
-                            return Err(InterpError::Runtime {
-                                line,
-                                message: "Division by zero".to_string(),
-                            });
-                        }
-                        Self::apply_arithmetic(&left, &right, |x, y| x / y, |x, y| x / y, line)?
-                    }
-                    _ => {
-                        return Err(InterpError::Internal(format!(
-                            "Reached invalid command in arithmetic block: {:?}",
-                            cmd
-                        )));
-                    }
-                };
-
+            // ---------- Binary ----------
+            Command::Binary(op, a_opt, b_opt) => {
+                let (left, right) = self.resolve_binary_args(a_opt, b_opt, line)?;
+                let result = Self::evaluate_binary_op(op.clone(), &left, &right, line)?;
                 self.stack.push(result);
                 self.line_num += 1;
             }
 
-            // ---------- Comparison ----------
-            Command::Eq(a, b)
-            | Command::Ne(a, b)
-            | Command::Gt(a, b)
-            | Command::Ge(a, b)
-            | Command::Lt(a, b)
-            | Command::Le(a, b) => {
-                let (left, right) = match (a, b) {
-                    (Some(l), Some(r)) => (l.clone(), r.clone()),
-                    (None, None) => {
-                        if self.stack.len() < 2 {
-                            return Err(InterpError::Runtime {
-                                line,
-                                message: "Not enough values on stack for comparison".to_string(),
-                            });
-                        }
-                        let r = self.stack.pop().ok_or_else(|| InterpError::Runtime {
-                            line,
-                            message: "Stack underflow".to_string(),
-                        })?;
-                        let l = self.stack.pop().ok_or_else(|| InterpError::Runtime {
-                            line,
-                            message: "Stack underflow".to_string(),
-                        })?;
-                        (l, r)
-                    }
-                    _ => {
-                        return Err(InterpError::Syntax {
-                            line,
-                            message: "Invalid arguments for comparison".to_string(),
-                        });
-                    }
-                };
-
-                use std::cmp::Ordering;
-                let cmp_result = match (&left, &right) {
-                    (Value::Int(li), Value::Int(ri)) => Some(li.cmp(ri)),
-                    (Value::Int(li), Value::Float(rf)) => {
-                        Some((*li as f64).partial_cmp(rf).unwrap_or(Ordering::Equal))
-                    }
-                    (Value::Float(lf), Value::Int(ri)) => {
-                        Some(lf.partial_cmp(&(*ri as f64)).unwrap_or(Ordering::Equal))
-                    }
-                    (Value::Float(lf), Value::Float(rf)) => {
-                        Some(lf.partial_cmp(rf).unwrap_or(Ordering::Equal))
-                    }
-                    (Value::String(ls), Value::String(rs)) => Some(ls.cmp(rs)),
-                    (Value::Bool(lb), Value::Bool(rb)) => Some(lb.cmp(rb)),
-                    _ => None,
-                };
-
-                let result_bool = match (cmd, cmp_result) {
-                    (Command::Eq(_, _), Some(ord)) => ord == Ordering::Equal,
-                    (Command::Ne(_, _), Some(ord)) => ord != Ordering::Equal,
-                    (Command::Gt(_, _), Some(ord)) => ord == Ordering::Greater,
-                    (Command::Ge(_, _), Some(ord)) => {
-                        ord == Ordering::Greater || ord == Ordering::Equal
-                    }
-                    (Command::Lt(_, _), Some(ord)) => ord == Ordering::Less,
-                    (Command::Le(_, _), Some(ord)) => {
-                        ord == Ordering::Less || ord == Ordering::Equal
-                    }
-                    _ => {
-                        return Err(InterpError::Runtime {
-                            line,
-                            message: format!(
-                                "Cannot compare values of types {:?} and {:?}",
-                                left, right
-                            ),
-                        });
-                    }
-                };
-
-                self.stack.push(Value::Bool(result_bool));
-                self.line_num += 1;
-            }
-
-            // ---------- Logic ----------
-            Command::And(a, b) | Command::Or(a, b) => {
-                let (left, right) = match (a, b) {
-                    (Some(l), Some(r)) => (l.clone(), r.clone()),
-                    (None, None) => {
-                        if self.stack.len() < 2 {
-                            return Err(InterpError::Runtime {
-                                line,
-                                message: "Not enough values on stack for logic operation"
-                                    .to_string(),
-                            });
-                        }
-                        let r = self.stack.pop().ok_or_else(|| InterpError::Runtime {
-                            line,
-                            message: "Stack underflow".to_string(),
-                        })?;
-                        let l = self.stack.pop().ok_or_else(|| InterpError::Runtime {
-                            line,
-                            message: "Stack underflow".to_string(),
-                        })?;
-                        (l, r)
-                    }
-                    _ => {
-                        return Err(InterpError::Syntax {
-                            line,
-                            message: "Invalid arguments for logic operation".to_string(),
-                        });
-                    }
-                };
-
-                let result = match cmd {
-                    Command::And(_, _) => left.as_bool() && right.as_bool(),
-                    Command::Or(_, _) => left.as_bool() || right.as_bool(),
-                    _ => {
-                        return Err(InterpError::Internal(
-                            "Logic operation mismatch".to_string(),
-                        ));
-                    }
-                };
-
-                self.stack.push(Value::Bool(result));
-                self.line_num += 1;
-            }
             Command::Not(a) => {
                 let value = match a {
                     Some(v) => v.clone(),
@@ -775,63 +922,11 @@ impl Interpreter {
             }
 
             Command::If(cond) => {
-                let condition = cond.as_bool();
-
-                if !condition {
+                if !cond.as_bool() {
                     let target = self.if_jump_map.get(&self.line_num).ok_or_else(|| {
                         InterpError::Internal("No matching jump target for IF".to_string())
                     })?;
                     self.line_num = *target + 1;
-                } else {
-                    self.line_num += 1;
-                }
-            }
-
-            Command::IfExpr { op, left, right } => {
-                use std::cmp::Ordering;
-                let cmp_result = match (&left, &right) {
-                    (Value::Int(li), Value::Int(ri)) => li.cmp(ri),
-                    (Value::Int(li), Value::Float(rf)) => {
-                        (*li as f64).partial_cmp(rf).unwrap_or(Ordering::Equal)
-                    }
-                    (Value::Float(lf), Value::Int(ri)) => {
-                        lf.partial_cmp(&(*ri as f64)).unwrap_or(Ordering::Equal)
-                    }
-                    (Value::Float(lf), Value::Float(rf)) => {
-                        lf.partial_cmp(rf).unwrap_or(Ordering::Equal)
-                    }
-                    (Value::String(ls), Value::String(rs)) => ls.cmp(rs),
-                    (Value::Bool(lb), Value::Bool(rb)) => lb.cmp(rb),
-                    _ => {
-                        return Err(InterpError::Runtime {
-                            line,
-                            message: format!("Cannot compare {:?} and {:?}", left, right),
-                        });
-                    }
-                };
-
-                let bool_result = match op.as_str() {
-                    "EQ" => cmp_result == Ordering::Equal,
-                    "NE" => cmp_result != Ordering::Equal,
-                    "GT" => cmp_result == Ordering::Greater,
-                    "GE" => cmp_result == Ordering::Greater || cmp_result == Ordering::Equal,
-                    "LT" => cmp_result == Ordering::Less,
-                    "LE" => cmp_result == Ordering::Less || cmp_result == Ordering::Equal,
-                    "AND" => left.as_bool() && right.as_bool(),
-                    "OR" => left.as_bool() || right.as_bool(),
-                    _ => {
-                        return Err(InterpError::Internal(format!(
-                            "Unsupported operator in IF expression: {}",
-                            op
-                        )));
-                    }
-                };
-
-                if !bool_result {
-                    let target = self.if_jump_map.get(&self.line_num).ok_or_else(|| {
-                        InterpError::Internal("No matching ENDIF for IF".to_string())
-                    })?;
-                    self.line_num = target + 1;
                 } else {
                     self.line_num += 1;
                 }
@@ -849,64 +944,7 @@ impl Interpreter {
             }
 
             Command::While(cond) => {
-                let condition = cond.as_bool();
-                if !condition {
-                    let target = self.loop_start_map.get(&self.line_num).ok_or_else(|| {
-                        InterpError::Internal("No matching DO for WHILE".to_string())
-                    })?;
-                    self.line_num = target + 1;
-                } else {
-                    if let Some(do_line) = self.loop_start_map.get(&self.line_num) {
-                        let frame = self.call_stack.last_mut().ok_or_else(|| {
-                            InterpError::Internal("No call frame available".to_string())
-                        })?;
-                        frame.active_loops.push(*do_line);
-                    }
-                    self.line_num += 1;
-                }
-            }
-
-            Command::WhileExpr { op, left, right } => {
-                use std::cmp::Ordering;
-                let cmp_result = match (&left, &right) {
-                    (Value::Int(li), Value::Int(ri)) => li.cmp(ri),
-                    (Value::Int(li), Value::Float(rf)) => {
-                        (*li as f64).partial_cmp(rf).unwrap_or(Ordering::Equal)
-                    }
-                    (Value::Float(lf), Value::Int(ri)) => {
-                        lf.partial_cmp(&(*ri as f64)).unwrap_or(Ordering::Equal)
-                    }
-                    (Value::Float(lf), Value::Float(rf)) => {
-                        lf.partial_cmp(rf).unwrap_or(Ordering::Equal)
-                    }
-                    (Value::String(ls), Value::String(rs)) => ls.cmp(rs),
-                    (Value::Bool(lb), Value::Bool(rb)) => lb.cmp(rb),
-                    _ => {
-                        return Err(InterpError::Runtime {
-                            line,
-                            message: format!("Cannot compare {:?} and {:?}", left, right),
-                        });
-                    }
-                };
-
-                let bool_result = match op.as_str() {
-                    "EQ" => cmp_result == Ordering::Equal,
-                    "NE" => cmp_result != Ordering::Equal,
-                    "GT" => cmp_result == Ordering::Greater,
-                    "GE" => cmp_result == Ordering::Greater || cmp_result == Ordering::Equal,
-                    "LT" => cmp_result == Ordering::Less,
-                    "LE" => cmp_result == Ordering::Less || cmp_result == Ordering::Equal,
-                    "AND" => left.as_bool() && right.as_bool(),
-                    "OR" => left.as_bool() || right.as_bool(),
-                    _ => {
-                        return Err(InterpError::Internal(format!(
-                            "Unsupported operator in WHILE expression: {}",
-                            op
-                        )));
-                    }
-                };
-
-                if !bool_result {
+                if !cond.as_bool() {
                     let target = self.loop_start_map.get(&self.line_num).ok_or_else(|| {
                         InterpError::Internal("No matching DO for WHILE".to_string())
                     })?;
@@ -999,51 +1037,206 @@ impl Interpreter {
                 self.call_stack.push(new_frame);
                 self.line_num = start + 1;
             }
+
+            Command::Len(arg_opt) => {
+                let val = match arg_opt {
+                    Some(v) => v.clone(),
+                    None => self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: "Stack underflow in LEN".to_string(),
+                    })?,
+                };
+                let result = match val {
+                    Value::String(s) => Value::Int(s.len() as i64),
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("LEN requires a string, got {:?}", val),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Concat(a_opt, b_opt) => {
+                let (left, right) = match (a_opt, b_opt) {
+                    (Some(l), Some(r)) => (l.clone(), r.clone()),
+                    (None, None) => {
+                        let r = self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                            line,
+                            message: "Stack underflow in CONCAT".to_string(),
+                        })?;
+                        let l = self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                            line,
+                            message: "Stack underflow in CONCAT".to_string(),
+                        })?;
+                        (l, r)
+                    }
+                    _ => {
+                        return Err(InterpError::Syntax {
+                            line,
+                            message: "Invalid arguments for CONCAT".to_string(),
+                        });
+                    }
+                };
+                let result = match (&left, &right) {
+                    (Value::String(ls), Value::String(rs)) => {
+                        Value::String(format!("{}{}", ls, rs))
+                    }
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!(
+                                "CONCAT requires two strings, got {:?} and {:?}",
+                                left, right
+                            ),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Substr(s_opt, start_opt, len_opt) => {
+                let (string, start, len) = match (s_opt, start_opt, len_opt) {
+                    (Some(s), Some(st), Some(l)) => (s.clone(), st.clone(), l.clone()),
+                    (None, None, None) => {
+                        let l = self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                            line,
+                            message: "Stack underflow in SUBSTR".to_string(),
+                        })?;
+                        let st = self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                            line,
+                            message: "Stack underflow in SUBSTR".to_string(),
+                        })?;
+                        let s = self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                            line,
+                            message: "Stack underflow in SUBSTR".to_string(),
+                        })?;
+                        (s, st, l)
+                    }
+                    _ => {
+                        return Err(InterpError::Syntax {
+                            line,
+                            message: "SUBSTR requires 3 arguments or none (to use stack)"
+                                .to_string(),
+                        });
+                    }
+                };
+                let string_val = match string {
+                    Value::String(s) => s,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("SUBSTR requires a string, got {:?}", string),
+                        });
+                    }
+                };
+                let start_val = match start {
+                    Value::Int(i) => i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("SUBSTR start requires integer, got {:?}", start),
+                        });
+                    }
+                };
+                let len_val = match len {
+                    Value::Int(i) => i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("SUBSTR length requires integer, got {:?}", len),
+                        });
+                    }
+                };
+
+                if start_val < 0 || len_val < 0 {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: "SUBSTR start and length must be non-negative".to_string(),
+                    });
+                }
+
+                let start_idx = start_val as usize;
+                let end_idx = start_idx + len_val as usize;
+                if start_idx > string_val.len() {
+                    self.stack.push(Value::String(String::new()));
+                } else {
+                    let substr = if end_idx > string_val.len() {
+                        &string_val[start_idx..]
+                    } else {
+                        &string_val[start_idx..end_idx]
+                    };
+                    self.stack.push(Value::String(substr.to_string()));
+                }
+                self.line_num += 1;
+            }
+
+            Command::Upper(arg_opt) => {
+                let val = match arg_opt {
+                    Some(v) => v.clone(),
+                    None => self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: "Stack underflow in UPPER".to_string(),
+                    })?,
+                };
+                let result = match val {
+                    Value::String(s) => Value::String(s.to_uppercase()),
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("UPPER requires a string, got {:?}", val),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Lower(arg_opt) => {
+                let val = match arg_opt {
+                    Some(v) => v.clone(),
+                    None => self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: "Stack underflow in LOWER".to_string(),
+                    })?,
+                };
+                let result = match val {
+                    Value::String(s) => Value::String(s.to_lowercase()),
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("LOWER requires a string, got {:?}", val),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Trim(arg_opt) => {
+                let val = match arg_opt {
+                    Some(v) => v.clone(),
+                    None => self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: "Stack underflow in TRIM".to_string(),
+                    })?,
+                };
+                let result = match val {
+                    Value::String(s) => Value::String(s.trim().to_string()),
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("TRIM requires a string, got {:?}", val),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
         }
         Ok(())
-    }
-
-    /// Helper to apply arithmetic operations on two Values.
-    fn apply_arithmetic<FInt, FFloat>(
-        a: &Value,
-        b: &Value,
-        op_int: FInt,
-        op_float: FFloat,
-        line: usize,
-    ) -> InterpResult<Value>
-    where
-        FInt: Fn(i64, i64) -> i64,
-        FFloat: Fn(f64, f64) -> f64,
-    {
-        match (a, b) {
-            (Value::Int(ai), Value::Int(bi)) => {
-                let result = op_int(*ai, *bi);
-                Ok(Value::Int(result))
-            }
-            _ => {
-                let af = match a {
-                    Value::Int(i) => *i as f64,
-                    Value::Float(f) => *f,
-                    _ => {
-                        return Err(InterpError::Runtime {
-                            line,
-                            message: "Operands must be numbers".to_string(),
-                        });
-                    }
-                };
-                let bf = match b {
-                    Value::Int(i) => *i as f64,
-                    Value::Float(f) => *f,
-                    _ => {
-                        return Err(InterpError::Runtime {
-                            line,
-                            message: "Operands must be numbers".to_string(),
-                        });
-                    }
-                };
-                let result = op_float(af, bf);
-                Ok(Value::Float(result))
-            }
-        }
     }
 }
