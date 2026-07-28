@@ -8,14 +8,15 @@ use std::collections::HashMap;
 use std::io::Write;
 
 /// A call frame: holds return address, local variables, and active loops for BREAK.
-struct CallFrame {
+#[derive(Clone)]
+pub struct CallFrame {
     return_line: usize,
     locals: HashMap<String, Value>,
     active_loops: Vec<usize>,
 }
 
 impl CallFrame {
-    fn new(return_line: usize) -> Self {
+    pub fn new(return_line: usize) -> Self {
         Self {
             return_line,
             locals: HashMap::new(),
@@ -26,11 +27,11 @@ impl CallFrame {
 
 /// The interpreter state: lines, stack, variables, jump maps, and call stack.
 pub struct Interpreter {
-    lines: Vec<String>,
     line_num: usize,
-    stack: Vec<Value>,
-    globals: HashMap<String, Value>,
-    call_stack: Vec<CallFrame>,
+    pub lines: Vec<String>,
+    pub stack: Vec<Value>,
+    pub globals: HashMap<String, Value>,
+    pub call_stack: Vec<CallFrame>,
 
     if_jump_map: HashMap<usize, usize>,
     else_jump_map: HashMap<usize, usize>,
@@ -62,9 +63,11 @@ impl Interpreter {
         s
     }
 
-    /// Runs the program. Returns an error if any occurs.
-    pub fn run(&mut self) -> InterpResult<()> {
+    /// Runs the program starting from a specific line number.
+    /// Calls `build_maps()` first to ensure jump maps are up‑to‑date.
+    pub fn run_from(&mut self, start_line: usize) -> InterpResult<()> {
         self.build_maps()?;
+        self.line_num = start_line;
 
         while self.line_num < self.lines.len() {
             let raw_line = &self.lines[self.line_num];
@@ -81,8 +84,13 @@ impl Interpreter {
         Ok(())
     }
 
+    /// Runs the program. Returns an error if any occurs.
+    pub fn run(&mut self) -> InterpResult<()> {
+        self.run_from(0)
+    }
+
     /// Builds jump maps for IF/WHILE/FUNC structures.
-    fn build_maps(&mut self) -> InterpResult<()> {
+    pub fn build_maps(&mut self) -> InterpResult<()> {
         let mut if_stack: Vec<(usize, Option<usize>)> = Vec::new();
         let mut while_stack = Vec::new();
         let mut func_stack = Vec::new();
@@ -103,12 +111,8 @@ impl Interpreter {
                         });
                     }
                     let name = tokens[1].clone();
-                    if self.func_start_map.contains_key(&name) {
-                        return Err(InterpError::Syntax {
-                            line: i + 1,
-                            message: format!("Function '{}' already defined", name),
-                        });
-                    }
+                    self.func_start_map.remove(&name);
+                    self.func_end_map.remove(&name);
                     func_stack.push((name, i));
                 }
                 "ENDF" => {
@@ -965,7 +969,11 @@ impl Interpreter {
                 })?;
 
                 if let Some(var) = var_opt {
-                    if let Some(locals) = self.current_locals_mut() {
+                    let is_global =
+                        self.call_stack.len() == 1 && self.call_stack[0].return_line == 0;
+                    if is_global {
+                        self.globals.insert(var.clone(), value);
+                    } else if let Some(locals) = self.current_locals_mut() {
                         locals.insert(var.clone(), value);
                     } else {
                         self.globals.insert(var.clone(), value);
@@ -975,7 +983,10 @@ impl Interpreter {
             }
 
             Command::Let(name, value) => {
-                if let Some(locals) = self.current_locals_mut() {
+                let is_global = self.call_stack.len() == 1 && self.call_stack[0].return_line == 0;
+                if is_global {
+                    self.globals.insert(name.clone(), value.clone());
+                } else if let Some(locals) = self.current_locals_mut() {
                     locals.insert(name.clone(), value.clone());
                 } else {
                     self.globals.insert(name.clone(), value.clone());
@@ -1013,7 +1024,10 @@ impl Interpreter {
                 let input = input.trim_end_matches(&['\n', '\r'][..]);
                 let value = crate::utils::parse(input);
 
-                if let Some(locals) = self.current_locals_mut() {
+                let is_global = self.call_stack.len() == 1 && self.call_stack[0].return_line == 0;
+                if is_global {
+                    self.globals.insert(var.clone(), value);
+                } else if let Some(locals) = self.current_locals_mut() {
                     locals.insert(var.clone(), value);
                 } else {
                     self.globals.insert(var.clone(), value);

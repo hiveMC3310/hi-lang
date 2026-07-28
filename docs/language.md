@@ -237,7 +237,53 @@ PRINT result   // 30
 
 ---
 
-## 7. Full Example Program
+## 7. REPL Mode (Interactive Shell)
+
+If you run the `hi` command without a filename, it starts an interactive REPL (Read‑Eval‑Print Loop):
+
+```bash
+hi
+```
+
+You can type commands directly, and they are executed immediately.  
+Multi‑line blocks like `IF`/`ENDIF`, `WHILE`/`DO`, and `FUNC`/`ENDF` are supported: the REPL will keep reading lines
+until the block is properly closed.
+
+**Special commands** (start with a colon):
+
+| Command            | Description                                   |
+|--------------------|-----------------------------------------------|
+| `:exit` or `:quit` | Exits the REPL.                               |
+| `:clear`           | Clears the stack and all global variables.    |
+| `:vars`            | Prints all global variables and their values. |
+| `:stack`           | Prints the current contents of the stack.     |
+
+Example session:
+
+```
+Hi REPL v1.3.0 — type :exit or :quit to quit
+Enter commands (multi-line blocks like IF/WHILE/FUNC are supported)
+
+hi> LET x "Hello World!"
+hi> FUNC greet
+...> PRINT x
+...> RET
+...> ENDF
+hi> CALL greet
+Hello World!
+hi> :vars
+x = Hello World!
+hi> :stack
+Stack: [Int(1)]
+hi> :clear
+hi> :stack
+Stack: []
+hi> :exit
+```
+
+---
+
+## 8. Full Example Program
 
 ```hi
 // Compute factorial of 5
@@ -265,7 +311,7 @@ PRINT "5! = " result
 
 ---
 
-## 8. Notes
+## 9. Notes
 
 - **SP** (Stack Pointer) always refers to the top of the stack.
 - **Booleans** are represented as `True` and `False` (case‑sensitive).

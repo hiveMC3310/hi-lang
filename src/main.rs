@@ -3,6 +3,7 @@
 mod commands;
 mod error;
 mod interpreter;
+mod repl;
 mod tokenizer;
 mod utils;
 mod value;
@@ -16,17 +17,28 @@ use colored::*;
 #[derive(Parser)]
 struct Args {
     /// The .hi file to interpret.
-    filename: String,
+    filename: Option<String>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    if !args.filename.ends_with(".hi") {
+
+    if args.filename.is_none() {
+        if let Err(e) = repl::repl_run() {
+            eprintln!("{} {}", "REPL error:".red().bold(), e);
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
+
+    let filename = args.filename.unwrap();
+
+    if !filename.ends_with(".hi") {
         eprintln!("{}", "Incorrect file extension".red().bold());
         std::process::exit(1);
     }
-    let content = std::fs::read_to_string(&args.filename)
-        .with_context(|| format!("Failed to read file '{}'", args.filename))?;
+    let content = std::fs::read_to_string(&filename)
+        .with_context(|| format!("Failed to read file '{}'", filename))?;
 
     let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
     let mut interpreter = Interpreter::new(lines);
@@ -39,7 +51,7 @@ fn main() -> Result<()> {
                 "at line".yellow().bold(),
                 line.to_string().cyan().bold(),
                 "in file".yellow().bold(),
-                args.filename.cyan().bold()
+                filename.cyan().bold()
             );
         }
         std::process::exit(1);
