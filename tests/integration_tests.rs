@@ -10,27 +10,23 @@ fn run_code(code: &str) -> InterpResult<()> {
     interp.run()
 }
 
-fn run_and_capture(code: &str) -> (InterpResult<()>, String) {
-    let temp_file = NamedTempFile::new().unwrap();
-    let _guard = StdoutOverride::from_file(temp_file.path()).unwrap();
+fn run_and_capture(code: &str) -> Result<(InterpResult<()>, String), Box<dyn std::error::Error>> {
+    let temp_file = NamedTempFile::new()?;
+    let _guard = StdoutOverride::from_file(temp_file.path())?;
 
     let result = run_code(code);
 
     drop(_guard);
 
     let mut content = String::new();
-    temp_file
-        .reopen()
-        .unwrap()
-        .read_to_string(&mut content)
-        .unwrap();
+    temp_file.reopen()?.read_to_string(&mut content)?;
 
-    (result, content)
+    Ok((result, content))
 }
 
 // ---------- Arithmetic ----------
 #[test]
-fn test_arithmetic() {
+fn test_arithmetic() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         // С аргументами
         ADD 3 5
@@ -54,20 +50,19 @@ fn test_arithmetic() {
         POP result4
         PRINT "15/3=" result4
     "#;
-    let (result, output) = run_and_capture(code);
-    assert!(
-        result.is_ok(),
-        "Арифметика упала: {:?}",
-        result.unwrap_err()
-    );
+    let (result, output) = run_and_capture(code)?;
 
     assert!(output.contains("3+5=8"));
     assert!(output.contains("10-4=6"));
     assert!(output.contains("7*2=14"));
     assert!(output.contains("15/3=5"));
+
+    result?; // проверяем успешность выполнения
+    Ok(())
 }
+
 #[test]
-fn test_mod_pow() {
+fn test_mod_pow() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         MOD 10 3
         POP m
@@ -85,17 +80,20 @@ fn test_mod_pow() {
         POP m2
         PRINT "5.5%2.0=" m2
     "#;
-    let (result, output) = run_and_capture(code);
-    assert!(result.is_ok(), "MOD/POW failed: {:?}", result.unwrap_err());
+    let (result, output) = run_and_capture(code)?;
+
     assert!(output.contains("10%3=1"));
     assert!(output.contains("2^3=8"));
     assert!(output.contains("2^-1=0.5"));
-    assert!(output.contains("5.5%2.0=1.5")); // float modulo
+    assert!(output.contains("5.5%2.0=1.5"));
+
+    result?;
+    Ok(())
 }
 
 // ---------- Comparison ----------
 #[test]
-fn test_comparisons() {
+fn test_comparisons() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         LT 3 5
         POP c1
@@ -122,8 +120,7 @@ fn test_comparisons() {
         PRINT "3<=3=" c6
     "#;
 
-    let (result, output) = run_and_capture(code);
-    assert!(result.is_ok(), "Сравнения упали: {:?}", result.unwrap_err());
+    let (result, output) = run_and_capture(code)?;
 
     assert!(output.contains("3<5=true"));
     assert!(output.contains("10>=10=true"));
@@ -131,11 +128,14 @@ fn test_comparisons() {
     assert!(output.contains("'abc'!='def'=true"));
     assert!(output.contains("5>3=true"));
     assert!(output.contains("3<=3=true"));
+
+    result?;
+    Ok(())
 }
 
 // ---------- Logic ----------
 #[test]
-fn test_logic() {
+fn test_logic() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         // AND с аргументами
         AND 1 0
@@ -166,19 +166,21 @@ fn test_logic() {
         PRINT "NOT 0=" n2
     "#;
 
-    let (result, output) = run_and_capture(code);
-    assert!(result.is_ok(), "Логика упала: {:?}", result.unwrap_err());
+    let (result, output) = run_and_capture(code)?;
 
     assert!(output.contains("1 AND 0=false"));
     assert!(output.contains("True AND False=false"));
     assert!(output.contains("0 OR 1=true"));
     assert!(output.contains("NOT True=false"));
     assert!(output.contains("NOT 0=true"));
+
+    result?;
+    Ok(())
 }
 
 // ---------- IF/ELSE ----------
 #[test]
-fn test_if_else() {
+fn test_if_else() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         LET x 5
         LT x 10
@@ -199,16 +201,18 @@ fn test_if_else() {
         ENDIF
     "#;
 
-    let (result, output) = run_and_capture(code);
-    assert!(result.is_ok(), "IF/ELSE упал: {:?}", result.unwrap_err());
+    let (result, output) = run_and_capture(code)?;
 
     assert!(output.contains("x < 10"));
     assert!(output.contains("y >= 15"));
+
+    result?;
+    Ok(())
 }
 
 // ---------- WHILE ----------
 #[test]
-fn test_while() {
+fn test_while() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         LET i 0
         LET running 1
@@ -224,18 +228,20 @@ fn test_while() {
         PRINT "Loop finished"
     "#;
 
-    let (result, output) = run_and_capture(code);
-    assert!(result.is_ok(), "WHILE упал: {:?}", result.unwrap_err());
+    let (result, output) = run_and_capture(code)?;
 
     assert!(output.contains("0"));
     assert!(output.contains("1"));
     assert!(output.contains("2"));
     assert!(output.contains("Loop finished"));
+
+    result?;
+    Ok(())
 }
 
 // ---------- Functions ----------
 #[test]
-fn test_functions() {
+fn test_functions() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         FUNC greet
             PRINT "Hello from function!"
@@ -259,16 +265,18 @@ fn test_functions() {
         PRINT "Sum=" result
     "#;
 
-    let (result, output) = run_and_capture(code);
-    assert!(result.is_ok(), "Функции упали: {:?}", result.unwrap_err());
+    let (result, output) = run_and_capture(code)?;
 
     assert!(output.contains("Hello from function!"));
     assert!(output.contains("Sum=30"));
+
+    result?;
+    Ok(())
 }
 
 // ---------- Inline ----------
 #[test]
-fn test_inline_if() {
+fn test_inline_if() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         LET x 5
         IF EQ x 5
@@ -295,17 +303,19 @@ fn test_inline_if() {
         ENDIF
     "#;
 
-    let (result, output) = run_and_capture(code);
-    assert!(result.is_ok(), "Inline IF упал: {:?}", result.unwrap_err());
+    let (result, output) = run_and_capture(code)?;
 
     assert!(output.contains("x is 5"));
     assert!(output.contains("y > 5"));
     assert!(output.contains("not both true"));
     assert!(output.contains("at least one true"));
+
+    result?;
+    Ok(())
 }
 
 #[test]
-fn test_inline_while() {
+fn test_inline_while() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         LET i 0
         WHILE LT i 3
@@ -316,22 +326,20 @@ fn test_inline_while() {
         PRINT "Done"
     "#;
 
-    let (result, output) = run_and_capture(code);
-    assert!(
-        result.is_ok(),
-        "Inline WHILE упал: {:?}",
-        result.unwrap_err()
-    );
+    let (result, output) = run_and_capture(code)?;
 
     assert!(output.contains("0"));
     assert!(output.contains("1"));
     assert!(output.contains("2"));
     assert!(output.contains("Done"));
+
+    result?;
+    Ok(())
 }
 
 // ---------- String methods ----------
 #[test]
-fn test_string_methods() {
+fn test_string_methods() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         LEN "hello"
         POP len
@@ -357,23 +365,22 @@ fn test_string_methods() {
         POP trim
         PRINT "trim=" trim
     "#;
-    let (result, output) = run_and_capture(code);
-    assert!(
-        result.is_ok(),
-        "Методы строк упали: {:?}",
-        result.unwrap_err()
-    );
+    let (result, output) = run_and_capture(code)?;
+
     assert!(output.contains("len=5"));
     assert!(output.contains("concat=Hello World"));
     assert!(output.contains("substr=world"));
     assert!(output.contains("upper=HELLO"));
     assert!(output.contains("lower=hello"));
     assert!(output.contains("trim=hello"));
+
+    result?;
+    Ok(())
 }
 
 // ---------- List ----------
 #[test]
-fn test_lists() {
+fn test_lists() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         LIST 1 2 3 4
         POP mylist
@@ -395,11 +402,14 @@ fn test_lists() {
         POP newlen
         PRINT "New length: " newlen
     "#;
-    let (result, output) = run_and_capture(code);
-    assert!(result.is_ok(), "Lists failed: {:?}", result.unwrap_err());
+    let (result, output) = run_and_capture(code)?;
+
     assert!(output.contains("List: [1, 2, 3, 4]"));
     assert!(output.contains("Length: 4"));
     assert!(output.contains("Third element: 3"));
     assert!(output.contains("New list: [1, 2, 3, 4, 42]"));
     assert!(output.contains("New length: 5"));
+
+    result?;
+    Ok(())
 }

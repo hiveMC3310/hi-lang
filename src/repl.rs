@@ -43,6 +43,7 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
         if trimmed == ":clear" {
+            interpreter.lines.clear();
             interpreter.stack.clear();
             interpreter.globals.clear();
             interpreter.call_stack.clear();

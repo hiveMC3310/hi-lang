@@ -198,6 +198,11 @@ impl Interpreter {
         Ok(())
     }
 
+    /// Returns `true` if the current scope is the global scope (i.e., not inside any function).
+    fn is_global_scope(&self) -> bool {
+        self.call_stack.len() == 1 && self.call_stack[0].return_line == 0
+    }
+
     /// Returns a reference to the current local variables, if any.
     fn current_locals(&self) -> Option<&HashMap<String, Value>> {
         self.call_stack.last().map(|frame| &frame.locals)
@@ -305,7 +310,12 @@ impl Interpreter {
                     "OR" => BinOp::Or,
                     "MOD" => BinOp::Mod,
                     "POW" => BinOp::Pow,
-                    _ => unreachable!(),
+                    _ => {
+                        return Err(InterpError::Syntax {
+                            line: self.line_num + 1,
+                            message: format!("Unknown binary operator '{}'", cmd_str),
+                        });
+                    }
                 };
                 let (left, right) = self.parse_binary_args(tokens)?;
                 Ok(Command::Binary(op, left, right))
@@ -360,7 +370,15 @@ impl Interpreter {
                             "LE" => BinOp::Le,
                             "AND" => BinOp::And,
                             "OR" => BinOp::Or,
-                            _ => unreachable!(),
+                            _ => {
+                                return Err(InterpError::Syntax {
+                                    line: self.line_num + 1,
+                                    message: format!(
+                                        "Unknown comparison/logical operator '{}'",
+                                        op_str
+                                    ),
+                                });
+                            }
                         };
                         let bool_result =
                             Self::evaluate_binary_op_bool(op, &left, &right, self.line_num + 1)?;
@@ -410,7 +428,15 @@ impl Interpreter {
                             "LE" => BinOp::Le,
                             "AND" => BinOp::And,
                             "OR" => BinOp::Or,
-                            _ => unreachable!(),
+                            _ => {
+                                return Err(InterpError::Syntax {
+                                    line: self.line_num + 1,
+                                    message: format!(
+                                        "Unknown comparison/logical operator '{}'",
+                                        op_str
+                                    ),
+                                });
+                            }
                         };
                         let bool_result =
                             Self::evaluate_binary_op_bool(op, &left, &right, self.line_num + 1)?;
@@ -969,9 +995,7 @@ impl Interpreter {
                 })?;
 
                 if let Some(var) = var_opt {
-                    let is_global =
-                        self.call_stack.len() == 1 && self.call_stack[0].return_line == 0;
-                    if is_global {
+                    if self.is_global_scope() {
                         self.globals.insert(var.clone(), value);
                     } else if let Some(locals) = self.current_locals_mut() {
                         locals.insert(var.clone(), value);
@@ -983,8 +1007,7 @@ impl Interpreter {
             }
 
             Command::Let(name, value) => {
-                let is_global = self.call_stack.len() == 1 && self.call_stack[0].return_line == 0;
-                if is_global {
+                if self.is_global_scope() {
                     self.globals.insert(name.clone(), value.clone());
                 } else if let Some(locals) = self.current_locals_mut() {
                     locals.insert(name.clone(), value.clone());
@@ -1024,8 +1047,7 @@ impl Interpreter {
                 let input = input.trim_end_matches(&['\n', '\r'][..]);
                 let value = crate::utils::parse(input);
 
-                let is_global = self.call_stack.len() == 1 && self.call_stack[0].return_line == 0;
-                if is_global {
+                if self.is_global_scope() {
                     self.globals.insert(var.clone(), value);
                 } else if let Some(locals) = self.current_locals_mut() {
                     locals.insert(var.clone(), value);
