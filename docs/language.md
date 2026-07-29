@@ -21,7 +21,16 @@ Comments start with `//` and go to the end of the line.
 
 - **Integers**: `42`, `-3`, `0`
 - **Floats**: `3.14`, `-2.5`, `0.0`
-- **Strings**: `"Hello, world!"` (double quotes, supports `\"` escape)
+- **Strings**: `"Hello, world!"` (double quotes).  
+  Supports escape sequences:
+    - `\n` – newline
+    - `\r` – carriage return
+    - `\t` – tab
+    - `\\` – backslash
+    - `\"` – double quote
+    - `\u{XXXX}` – Unicode code point (hex digits, e.g., `\u{1F600}` for 😀)
+
+  Invalid escapes or unclosed strings cause a syntax error.
 - **Booleans**: `True`, `False`
 - **Lists**: `[1, 2, "three"]` (created via commands, not literal syntax)
 
@@ -111,25 +120,40 @@ handled where possible.
 | `OR`    | Logical OR (same as above).                                                                                |
 | `NOT`   | Logical NOT (takes one argument or pops one value from stack).                                             |
 
-### String Operations
+### String Operations (v1.4.0+)
 
-| Command  | Description                                                                                                     |
-|----------|-----------------------------------------------------------------------------------------------------------------|
-| `LEN`    | Returns the length of a string (or a list). Takes one argument or pops one value from stack.                    |
-| `CONCAT` | Concatenates two strings. Takes two arguments or pops two values from stack.                                    |
-| `SUBSTR` | Extracts a substring. Takes three arguments: string, start index, length. Also works from stack (pop 3 values). |
-| `UPPER`  | Converts a string to uppercase. Takes one argument or pops one value from stack.                                |
-| `LOWER`  | Converts a string to lowercase. Takes one argument or pops one value from stack.                                |
-| `TRIM`   | Removes leading and trailing whitespace from a string. Takes one argument or pops one value from stack.         |
+| Command    | Description                                                                                                         |
+|------------|---------------------------------------------------------------------------------------------------------------------|
+| `LEN`      | Returns the length of a string (or a list). Takes one argument or pops one value from stack.                        |
+| `CONCAT`   | Concatenates two strings. Takes two arguments or pops two values from stack.                                        |
+| `SUBSTR`   | Extracts a substring. Takes three arguments: string, start index, length. Also works from stack (pop 3 values).     |
+| `UPPER`    | Converts a string to uppercase. Takes one argument or pops one value from stack.                                    |
+| `LOWER`    | Converts a string to lowercase. Takes one argument or pops one value from stack.                                    |
+| `TRIM`     | Removes leading and trailing whitespace from a string. Takes one argument or pops one value from stack.             |
+| `STARTS`   | Checks if a string starts with a given prefix. Takes two arguments (base, prefix). Returns boolean.                 |
+| `ENDS`     | Checks if a string ends with a given suffix. Takes two arguments (base, suffix). Returns boolean.                   |
+| `REPLACE`  | Replaces all occurrences of a substring with another. Takes three arguments (base, old, new). Returns a new string. |
+| `SPLIT`    | Splits a string by a delimiter. Takes two arguments (base, delimiter). Returns a list of substrings.                |
+| `CONTAINS` | Checks if a string contains a substring. Takes two arguments (base, element). Works for lists too. Returns boolean. |
 
-### List Operations
+### List Operations (v1.4.0+)
 
-| Command               | Description                                                        |
-|-----------------------|--------------------------------------------------------------------|
-| `LIST val1 val2 ...`  | Creates a list from the given values and pushes it onto the stack. |
-| `INDEX list index`    | Pushes the element at the specified 0‑based index onto the stack.  |
-| `APPEND list element` | Creates a new list by adding the element to the end and pushes it. |
-| `LEN`                 | Works for lists as well (returns the number of elements).          |
+Lists are now **mutable** with **copy‑on‑write** semantics. Operations like `APPEND`, `INSERT`, `REMOVE` modify the list
+in place when possible (if there is only one reference), otherwise they create a copy. All list operations push the
+resulting list back onto the stack.
+
+| Command                     | Description                                                                                    |
+|-----------------------------|------------------------------------------------------------------------------------------------|
+| `LIST val1 val2 ...`        | Creates a list from the given values and pushes it onto the stack.                             |
+| `INDEX list index`          | Pushes the element at the specified 0‑based index onto the stack.                              |
+| `APPEND list element`       | Appends an element to the end. Returns the (possibly modified) list.                           |
+| `LEN`                       | Returns the number of elements in a list (works for strings too).                              |
+| `CONTAINS list element`     | Checks if a list contains a value. Returns boolean.                                            |
+| `SLICE list start length`   | Extracts a sublist (non‑negative indices). Returns a new list.                                 |
+| `REVERSE list`              | Reverses the list (in place if possible, otherwise creates a copy). Returns the reversed list. |
+| `INSERT list index element` | Inserts an element at the given position. Returns the modified list.                           |
+| `REMOVE list index`         | Removes the element at the given position. Returns the modified list.                          |
+| `INDEXOF list element`      | Returns the first index of `element` in the list, or `-1` if not found.                        |
 
 ### Control Flow
 
@@ -194,7 +218,7 @@ POP third
 PRINT third   // prints 3
 ```
 
-### Appending
+### Appending an Element
 
 ```hi
 APPEND mylist 42
@@ -202,15 +226,53 @@ POP newlist
 PRINT newlist   // [1, 2, 3, "hello", True, 42]
 ```
 
+### Inserting and Removing
+
+```hi
+INSERT mylist 2 99
+POP updated
+PRINT updated   // [1, 2, 99, 3, "hello", True, 42]
+
+REMOVE updated 3
+POP shorter
+PRINT shorter   // [1, 2, 99, "hello", True, 42]
+```
+
+### Slicing
+
+```hi
+SLICE mylist 1 3
+POP slice
+PRINT slice     // [2, 3, "hello"]
+```
+
+### Reversing
+
+```hi
+REVERSE mylist
+POP rev
+PRINT rev       // [42, True, "hello", 3, 2, 1]
+```
+
+### Searching
+
+```hi
+INDEXOF mylist "hello"
+POP idx         // 2
+CONTAINS mylist 99
+POP has         // true
+```
+
 ### Length
 
 ```hi
 LEN mylist
-POP len
-PRINT len      // 5
+POP len         // 6
 ```
 
-Lists are **immutable** – operations like `APPEND` create a new list and leave the original unchanged.
+> **Note:** Lists are mutable with copy‑on‑write. Operations like `APPEND`, `INSERT`, `REMOVE`, `REVERSE` modify the
+> list in place if possible, but if there are multiple references, a copy is made. The resulting list is always pushed
+> onto the stack.
 
 ---
 
@@ -261,7 +323,7 @@ until the block is properly closed.
 Example session:
 
 ```
-Hi REPL v1.3.0 — type :exit or :quit to quit
+Hi REPL v1.4.0 — type :exit or :quit to quit
 Enter commands (multi-line blocks like IF/WHILE/FUNC are supported)
 
 hi> LET x "Hello World!"
@@ -316,7 +378,7 @@ PRINT "5! = " result
 - **SP** (Stack Pointer) always refers to the top of the stack.
 - **Booleans** are represented as `True` and `False` (case‑sensitive).
 - **Strings** are immutable; operations like `UPPER` create new strings.
-- **Lists** are immutable; `APPEND` returns a new list.
+- **Lists** are mutable (with copy‑on‑write) – operations that change the list return the modified list.
 - The interpreter is **case‑insensitive** for command names, but **case‑sensitive** for variable names and boolean
   literals.
 

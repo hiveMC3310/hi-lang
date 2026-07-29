@@ -4,8 +4,10 @@ use crate::commands::{BinOp, Command};
 use crate::error::{InterpError, InterpResult};
 use crate::tokenizer::Tokenizer;
 use crate::value::Value;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
+use std::rc::Rc;
 
 /// A call frame: holds return address, local variables, and active loops for BREAK.
 #[derive(Clone)]
@@ -696,6 +698,229 @@ impl Interpreter {
                 )?;
                 Ok(Command::Append(list_val, el_val))
             }
+            "CONTAINS" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "CONTAINS requires two arguments: base and element".to_string(),
+                    });
+                }
+                let base = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let el = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Contains(base, el))
+            }
+            "STARTS" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "STARTS requires two arguments: base and prefix".to_string(),
+                    });
+                }
+                let base = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let prefix = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Starts(base, prefix))
+            }
+            "ENDS" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "ENDS requires two arguments: base and suffix".to_string(),
+                    });
+                }
+                let base = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let suffix = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Ends(base, suffix))
+            }
+            "REPLACE" => {
+                if tokens.len() < 4 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "REPLACE requires three arguments: base, old, new".to_string(),
+                    });
+                }
+                let base = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let old = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let new = Tokenizer::resolve_value(
+                    &tokens[3],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Replace(base, old, new))
+            }
+            "SPLIT" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "SPLIT requires two arguments: base and delimiter".to_string(),
+                    });
+                }
+                let base = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let delim = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Split(base, delim))
+            }
+            "SLICE" => {
+                if tokens.len() < 4 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "SLICE requires three arguments: list, start, len".to_string(),
+                    });
+                }
+                let list = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let start = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let len = Tokenizer::resolve_value(
+                    &tokens[3],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Slice(list, start, len))
+            }
+            "REVERSE" => {
+                if tokens.len() < 2 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "REVERSE requires one argument (string or list)".to_string(),
+                    });
+                }
+                let base = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Reverse(base))
+            }
+            "INSERT" => {
+                if tokens.len() < 4 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "INSERT requires three arguments: list, index, element"
+                            .to_string(),
+                    });
+                }
+                let list = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let idx = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let el = Tokenizer::resolve_value(
+                    &tokens[3],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Insert(list, idx, el))
+            }
+            "REMOVE" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "REMOVE requires two arguments: list and index".to_string(),
+                    });
+                }
+                let list = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let idx = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Remove(list, idx))
+            }
+            "INDEXOF" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "INDEXOF requires two arguments: base and element".to_string(),
+                    });
+                }
+                let base = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let el = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::IndexOf(base, el))
+            }
             _ => Err(InterpError::Syntax {
                 line: self.line_num + 1,
                 message: format!("Unknown command '{}'", cmd_str),
@@ -1216,7 +1441,7 @@ impl Interpreter {
                 };
                 let result = match &val {
                     Value::String(s) => Value::Int(s.len() as i64),
-                    Value::List(vec) => Value::Int(vec.len() as i64),
+                    Value::List(l) => Value::Int(l.borrow().len() as i64),
                     _ => {
                         return Err(InterpError::Runtime {
                             line,
@@ -1407,12 +1632,13 @@ impl Interpreter {
             }
 
             Command::List(elements) => {
-                self.stack.push(Value::List(elements.clone()));
+                let list = Rc::new(RefCell::new(elements.clone()));
+                self.stack.push(Value::List(list));
                 self.line_num += 1;
             }
 
             Command::Index(list_val, idx_val) => {
-                let list = match list_val {
+                let list_rc = match list_val {
                     Value::List(vec) => vec,
                     _ => {
                         return Err(InterpError::Runtime {
@@ -1421,6 +1647,7 @@ impl Interpreter {
                         });
                     }
                 };
+                let list = list_rc.borrow();
                 let idx = match idx_val {
                     Value::Int(i) => *i,
                     _ => {
@@ -1442,7 +1669,7 @@ impl Interpreter {
             }
 
             Command::Append(list_val, el_val) => {
-                let list = match list_val {
+                let list_rc = match list_val {
                     Value::List(vec) => vec,
                     _ => {
                         return Err(InterpError::Runtime {
@@ -1451,9 +1678,283 @@ impl Interpreter {
                         });
                     }
                 };
-                let mut new_list = list.clone();
-                new_list.push(el_val.clone());
-                self.stack.push(Value::List(new_list));
+
+                let new_list_rc = if Rc::strong_count(&list_rc) == 1 {
+                    list_rc.borrow_mut().push(el_val.clone());
+                    list_rc.clone()
+                } else {
+                    let mut new_vec = list_rc.borrow().clone();
+                    new_vec.push(el_val.clone());
+                    Rc::new(RefCell::new(new_vec))
+                };
+
+                self.stack.push(Value::List(new_list_rc));
+                self.line_num += 1;
+            }
+
+            Command::Contains(base, el) => {
+                let result = match (base, el) {
+                    (Value::String(s), Value::String(sub)) => Value::Bool(s.contains(sub)),
+                    (Value::List(l_rc), val) => {
+                        let l = l_rc.borrow();
+                        Value::Bool(l.contains(val))
+                    }
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!(
+                                "CONTAINS requires string/string or list/element, got {:?} and {:?}",
+                                base, el
+                            ),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Starts(base, prefix) => {
+                let result = match (base, prefix) {
+                    (Value::String(s), Value::String(p)) => Value::Bool(s.starts_with(p)),
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!(
+                                "STARTS requires two strings, got {:?} and {:?}",
+                                base, prefix
+                            ),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Ends(base, suffix) => {
+                let result = match (base, suffix) {
+                    (Value::String(s), Value::String(suf)) => Value::Bool(s.ends_with(suf)),
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!(
+                                "ENDS requires two strings, got {:?} and {:?}",
+                                base, suffix
+                            ),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Replace(base, old, new) => {
+                let result = match (base, old, new) {
+                    (Value::String(s), Value::String(old_str), Value::String(new_str)) => {
+                        Value::String(s.replace(old_str, new_str))
+                    }
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!(
+                                "REPLACE requires three strings, got {:?}, {:?}, {:?}",
+                                base, old, new
+                            ),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Split(base, delim) => {
+                let result = match (base, delim) {
+                    (Value::String(s), Value::String(d)) => {
+                        let parts: Vec<Value> = s
+                            .split(d)
+                            .map(|part| Value::String(part.to_string()))
+                            .collect();
+                        Value::List(Rc::new(RefCell::new(parts)))
+                    }
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!(
+                                "SPLIT requires two strings, got {:?} and {:?}",
+                                base, delim
+                            ),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Slice(list_val, start_val, len_val) => {
+                let list_rc = match list_val {
+                    Value::List(rc) => rc,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("SLICE requires a list, got {:?}", list_val),
+                        });
+                    }
+                };
+                let start = match start_val {
+                    Value::Int(i) => *i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("SLICE start must be integer, got {:?}", start_val),
+                        });
+                    }
+                };
+                let len = match len_val {
+                    Value::Int(i) => *i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("SLICE length must be integer, got {:?}", len_val),
+                        });
+                    }
+                };
+                if start < 0 || len < 0 {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: "SLICE start and length must be non-negative".to_string(),
+                    });
+                }
+                let list = list_rc.borrow();
+                let start_idx = start as usize;
+                let end_idx = start_idx + len as usize;
+                if start_idx >= list.len() {
+                    self.stack
+                        .push(Value::List(Rc::new(RefCell::new(Vec::new()))));
+                } else {
+                    let sliced = if end_idx > list.len() {
+                        list[start_idx..].to_vec()
+                    } else {
+                        list[start_idx..end_idx].to_vec()
+                    };
+                    self.stack.push(Value::List(Rc::new(RefCell::new(sliced))));
+                }
+                self.line_num += 1;
+            }
+
+            Command::Reverse(base) => {
+                let result = match base {
+                    Value::String(s) => Value::String(s.chars().rev().collect()),
+                    Value::List(rc) => {
+                        let mut vec = rc.borrow().clone();
+                        vec.reverse();
+                        Value::List(Rc::new(RefCell::new(vec)))
+                    }
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("REVERSE requires a string or a list, got {:?}", base),
+                        });
+                    }
+                };
+                self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Insert(list_val, idx_val, el_val) => {
+                let list_rc = match list_val {
+                    Value::List(rc) => rc,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("INSERT requires a list, got {:?}", list_val),
+                        });
+                    }
+                };
+                let idx = match idx_val {
+                    Value::Int(i) => *i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("INSERT index must be integer, got {:?}", idx_val),
+                        });
+                    }
+                };
+                let new_rc = if Rc::strong_count(&list_rc) == 1 {
+                    list_rc.borrow_mut().insert(idx as usize, el_val.clone());
+                    list_rc.clone()
+                } else {
+                    let mut new_vec = list_rc.borrow().clone();
+                    new_vec.insert(idx as usize, el_val.clone());
+                    Rc::new(RefCell::new(new_vec))
+                };
+                self.stack.push(Value::List(new_rc));
+                self.line_num += 1;
+            }
+
+            Command::Remove(list_val, idx_val) => {
+                let list_rc = match list_val {
+                    Value::List(rc) => rc,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("REMOVE requires a list, got {:?}", list_val),
+                        });
+                    }
+                };
+                let idx = match idx_val {
+                    Value::Int(i) => *i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("REMOVE index must be integer, got {:?}", idx_val),
+                        });
+                    }
+                };
+
+                let new_rc = if Rc::strong_count(&list_rc) == 1 {
+                    list_rc.borrow_mut().remove(idx as usize);
+                    list_rc.clone()
+                } else {
+                    let mut new_vec = list_rc.borrow().clone();
+                    new_vec.remove(idx as usize);
+                    Rc::new(RefCell::new(new_vec))
+                };
+                self.stack.push(Value::List(new_rc));
+                self.line_num += 1;
+            }
+
+            Command::IndexOf(base, el) => {
+                let result = match base {
+                    Value::String(s) => {
+                        if let Value::String(sub) = el {
+                            match s.find(sub) {
+                                Some(pos) => Value::Int(pos as i64),
+                                None => Value::Int(-1),
+                            }
+                        } else {
+                            return Err(InterpError::Runtime {
+                                line,
+                                message: format!(
+                                    "INDEXOF for string requires string element, got {:?}",
+                                    el
+                                ),
+                            });
+                        }
+                    }
+                    Value::List(rc) => {
+                        let list = rc.borrow();
+                        match list.iter().position(|v| *v == *el) {
+                            Some(pos) => Value::Int(pos as i64),
+                            None => Value::Int(-1),
+                        }
+                    }
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("INDEXOF requires a string or a list, got {:?}", base),
+                        });
+                    }
+                };
+                self.stack.push(result);
                 self.line_num += 1;
             }
         }

@@ -40,6 +40,18 @@ pub enum Command {
     List(Vec<Value>),
     Index(Value, Value),
     Append(Value, Value),
+
+    Contains(Value, Value),
+    Starts(Value, Value),
+    Ends(Value, Value),
+    Replace(Value, Value, Value),
+    Split(Value, Value),
+
+    Slice(Value, Value, Value),
+    Reverse(Value),
+    Insert(Value, Value, Value),
+    Remove(Value, Value),
+    IndexOf(Value, Value),
 }
 
 #[derive(Debug, Clone)]

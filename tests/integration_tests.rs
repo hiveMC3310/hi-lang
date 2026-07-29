@@ -57,7 +57,7 @@ fn test_arithmetic() -> Result<(), Box<dyn std::error::Error>> {
     assert!(output.contains("7*2=14"));
     assert!(output.contains("15/3=5"));
 
-    result?; // проверяем успешность выполнения
+    result?;
     Ok(())
 }
 
@@ -380,7 +380,7 @@ fn test_string_methods() -> Result<(), Box<dyn std::error::Error>> {
 
 // ---------- List ----------
 #[test]
-fn test_lists() -> Result<(), Box<dyn std::error::Error>> {
+fn test_list_methods() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         LIST 1 2 3 4
         POP mylist
@@ -409,6 +409,137 @@ fn test_lists() -> Result<(), Box<dyn std::error::Error>> {
     assert!(output.contains("Third element: 3"));
     assert!(output.contains("New list: [1, 2, 3, 4, 42]"));
     assert!(output.contains("New length: 5"));
+
+    result?;
+    Ok(())
+}
+
+// ---------- New string/list methods ----------
+#[test]
+fn test_new_string_methods() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        STARTS "hello world" "hello"
+        POP s1
+        PRINT "starts_hello=" s1
+
+        STARTS "hello" "he"
+        POP s2
+        PRINT "starts_he=" s2
+
+        ENDS "hello world" "world"
+        POP e1
+        PRINT "ends_world=" e1
+
+        ENDS "hello" "lo"
+        POP e2
+        PRINT "ends_lo=" e2
+
+        REPLACE "hello world" "world" "Rust"
+        POP rpl
+        PRINT "replace=" rpl
+
+        REPLACE "abc123abc" "abc" "XYZ"
+        POP rpl2
+        PRINT "replace2=" rpl2
+
+        SPLIT "one,two,three" ","
+        POP spl
+        PRINT "split=" spl
+
+        SPLIT "a.b.c" "."
+        POP spl2
+        PRINT "split2=" spl2
+
+        CONTAINS "hello world" "world"
+        POP c1
+        PRINT "contains_world=" c1
+
+        CONTAINS "hello" "xyz"
+        POP c2
+        PRINT "contains_xyz=" c2
+    "#;
+    let (result, output) = run_and_capture(code)?;
+
+    assert!(output.contains("starts_hello=true"));
+    assert!(output.contains("starts_he=true"));
+    assert!(output.contains("ends_world=true"));
+    assert!(output.contains("ends_lo=true"));
+    assert!(output.contains("replace=hello Rust"));
+    assert!(output.contains("replace2=XYZ123XYZ"));
+    assert!(output.contains("split=[one, two, three]"));
+    assert!(output.contains("split2=[a, b, c]"));
+    assert!(output.contains("contains_world=true"));
+    assert!(output.contains("contains_xyz=false"));
+
+    result?;
+    Ok(())
+}
+
+#[test]
+fn test_new_list_methods() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        LIST 1 2 3 4 5
+        POP mylist
+
+        INSERT mylist 2 99
+        POP newlist
+        PRINT "inserted=" newlist
+
+        REMOVE newlist 1
+        POP remlist
+        PRINT "removed=" remlist
+
+        APPEND remlist 42
+        POP applist
+        PRINT "appended=" applist
+
+        PRINT "original=" mylist
+
+        SLICE applist 1 3
+        POP sliced
+        PRINT "slice=" sliced
+
+        REVERSE applist
+        POP rev
+        PRINT "reverse=" rev
+
+        INDEXOF applist 99
+        POP idx1
+        PRINT "indexof_99=" idx1
+
+        INDEXOF applist 42
+        POP idx2
+        PRINT "indexof_42=" idx2
+
+        INDEXOF applist 999
+        POP idx3
+        PRINT "indexof_999=" idx3
+
+        CONTAINS applist 42
+        POP c1
+        PRINT "contains_42=" c1
+
+        CONTAINS applist 100
+        POP c2
+        PRINT "contains_100=" c2
+    "#;
+    let (result, output) = run_and_capture(code)?;
+
+    assert!(output.contains("inserted=[1, 2, 99, 3, 4, 5]"));
+    assert!(output.contains("removed=[1, 99, 3, 4, 5]"));
+    assert!(output.contains("appended=[1, 99, 3, 4, 5, 42]"));
+    assert!(output.contains("original=[1, 2, 3, 4, 5]"));
+
+    assert!(output.contains("slice=[99, 3, 4]"));
+
+    assert!(output.contains("reverse=[42, 5, 4, 3, 99, 1]"));
+
+    assert!(output.contains("indexof_99=1"));
+    assert!(output.contains("indexof_42=5"));
+    assert!(output.contains("indexof_999=-1"));
+
+    assert!(output.contains("contains_42=true"));
+    assert!(output.contains("contains_100=false"));
 
     result?;
     Ok(())
