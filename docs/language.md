@@ -71,6 +71,8 @@ Hi maintains a **value stack**. Many commands interact with it:
 |--------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `PUSH value` | Pushes a value onto the stack.                                                                                                                       |
 | `POP [var]`  | Pops the top value from the stack. If a variable name is given, the value is stored in that variable (local if inside a function, otherwise global). |
+| `DUP`        | Duplicates the top value on the stack (pushes a copy).                                                                                               |
+| `SWAP`       | Swaps the top two values on the stack.                                                                                                               |
 
 ### Variables
 
@@ -154,6 +156,36 @@ resulting list back onto the stack.
 | `INSERT list index element` | Inserts an element at the given position. Returns the modified list.                           |
 | `REMOVE list index`         | Removes the element at the given position. Returns the modified list.                          |
 | `INDEXOF list element`      | Returns the first index of `element` in the list, or `-1` if not found.                        |
+
+### File Operations (v1.5.0+)
+
+Hi provides basic file I/O. All file operations work with file handles stored on the stack.
+
+| Command              | Description                                                                                                                              |
+|----------------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| `OPEN path mode`     | Opens a file. `mode` can be `"r"` (read), `"w"` (write, overwrites), or `"a"` (append). Pushes a file handle onto the stack.             |
+| `CLOSE [file]`       | Closes a file handle. If no argument is given, pops the top file handle from the stack and closes it.                                    |
+| `READ file [var]`    | Reads the entire remaining content of the file as a string. If a variable is given, stores it there; otherwise pushes onto the stack.    |
+| `WRITE file value`   | Writes a string (or any value) to the file without adding a newline.                                                                     |
+| `READLN file [var]`  | Reads one line from the file (including newline if present). If a variable is given, stores it there; otherwise pushes onto the stack.   |
+| `WRITELN file value` | Writes a string and appends a newline.                                                                                                   |
+| `EOF [file]`         | Returns `True` if the end of the file has been reached, otherwise `False`. If no argument is given, pops the file handle from the stack. |
+
+**Example:**
+
+```hi
+OPEN "output.txt" "w"
+POP f
+WRITELN f "Hello, world!"
+CLOSE f
+
+OPEN "output.txt" "r"
+POP f
+READLN f
+POP line
+PRINT "Read: " line
+CLOSE f
+```
 
 ### Control Flow
 
@@ -323,7 +355,7 @@ until the block is properly closed.
 Example session:
 
 ```
-Hi REPL v1.4.0 — type :exit or :quit to quit
+Hi REPL v1.5.0 — type :exit or :quit to quit
 Enter commands (multi-line blocks like IF/WHILE/FUNC are supported)
 
 hi> LET x "Hello World!"

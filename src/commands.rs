@@ -11,6 +11,9 @@ pub enum Command {
     Pop(Option<String>),
     Let(String, Value),
 
+    Dup,
+    Swap,
+
     Print(Vec<Value>),
     Input(Option<String>, String),
 
@@ -52,6 +55,14 @@ pub enum Command {
     Insert(Value, Value, Value),
     Remove(Value, Value),
     IndexOf(Value, Value),
+
+    Open(String, String),
+    Close(Option<Value>),
+    Read(Value, Option<String>),
+    Write(Value, Value),
+    Readln(Value, Option<String>),
+    Writeln(Value, Value),
+    Eof(Option<Value>),
 }
 
 #[derive(Debug, Clone)]

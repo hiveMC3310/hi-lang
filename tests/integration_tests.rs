@@ -24,23 +24,50 @@ fn run_and_capture(code: &str) -> Result<(InterpResult<()>, String), Box<dyn std
     Ok((result, content))
 }
 
+// ---------- Stack operations ----------
+#[test]
+fn test_stack_ops() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        PUSH 10
+        PUSH 20
+        DUP
+        POP dup_val
+        PRINT "dup=" dup_val
+
+        PUSH 100
+        SWAP
+        POP a
+        POP b
+        PRINT "swap=" a " " b
+
+        PUSH 999
+        POP
+        PUSH 42
+        POP result
+        PRINT "pop=" result
+    "#;
+    let (result, output) = run_and_capture(code)?;
+    assert!(output.contains("dup=20"));
+    assert!(output.contains("swap=20 100"));
+    assert!(output.contains("pop=42"));
+    result?;
+    Ok(())
+}
+
 // ---------- Arithmetic ----------
 #[test]
 fn test_arithmetic() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
-        // С аргументами
         ADD 3 5
         POP result1
         PRINT "3+5=" result1
 
-        // Со стека
         PUSH 10
         PUSH 4
         SUB
         POP result2
         PRINT "10-4=" result2
 
-        // Смешанные типы
         PUSH 7
         MUL 2 SP
         POP result3
@@ -137,29 +164,24 @@ fn test_comparisons() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_logic() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
-        // AND с аргументами
         AND 1 0
         POP a1
         PRINT "1 AND 0=" a1
 
-        // AND со стека
         PUSH True
         PUSH False
         AND
         POP a2
         PRINT "True AND False=" a2
 
-        // OR
         OR 0 1
         POP o1
         PRINT "0 OR 1=" o1
 
-        // NOT с аргументом
         NOT True
         POP n1
         PRINT "NOT True=" n1
 
-        // NOT со стека
         PUSH 0
         NOT
         POP n2
@@ -249,7 +271,6 @@ fn test_functions() -> Result<(), Box<dyn std::error::Error>> {
         ENDF
 
         FUNC sum
-            // принимает два числа со стека, возвращает сумму
             POP a
             POP b
             ADD b a
@@ -542,5 +563,211 @@ fn test_new_list_methods() -> Result<(), Box<dyn std::error::Error>> {
     assert!(output.contains("contains_100=false"));
 
     result?;
+    Ok(())
+}
+
+// ---------- I/O ----------
+#[test]
+fn test_file_write_read() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_file = NamedTempFile::new()?;
+    let path = temp_file.path().to_str().unwrap().to_string();
+    let code = format!(
+        r#"
+        OPEN "{}" "w"
+        POP f
+        WRITE f "Hello, world!"
+        CLOSE f
+
+        OPEN "{}" "r"
+        POP f
+        READ f
+        POP content
+        CLOSE f
+        "#,
+        path, path
+    );
+    let result = run_code(&code);
+    result?;
+
+    let content = std::fs::read_to_string(&path)?;
+    assert_eq!(content, "Hello, world!");
+    Ok(())
+}
+
+#[test]
+fn test_file_writeln_readln() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_file = NamedTempFile::new()?;
+    let path = temp_file.path().to_str().unwrap().to_string();
+    let code = format!(
+        r#"
+        OPEN "{}" "w"
+        POP f
+        WRITELN f "Line 1"
+        WRITELN f "Line 2"
+        CLOSE f
+
+        OPEN "{}" "r"
+        POP f
+        READLN f
+        POP line1
+        READLN f
+        POP line2
+        CLOSE f
+        "#,
+        path, path
+    );
+    let result = run_code(&code);
+    result?;
+
+    let content = std::fs::read_to_string(&path)?;
+    assert_eq!(content, "Line 1\nLine 2\n");
+    Ok(())
+}
+
+#[test]
+fn test_file_append() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_file = NamedTempFile::new()?;
+    let path = temp_file.path().to_str().unwrap().to_string();
+
+    std::fs::write(&path, "Initial\n")?;
+    let code = format!(
+        r#"
+        OPEN "{}" "a"
+        POP f
+        WRITE f "Appended"
+        CLOSE f
+        "#,
+        path
+    );
+    let result = run_code(&code);
+    result?;
+
+    let content = std::fs::read_to_string(&path)?;
+    assert_eq!(content, "Initial\nAppended");
+    Ok(())
+}
+
+#[test]
+fn test_file_eof() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_file = NamedTempFile::new()?;
+    let path = temp_file.path().to_str().unwrap().to_string();
+
+    std::fs::write(&path, "Hello")?;
+
+    let code = format!(
+        r#"
+        OPEN "{}" "r"
+        POP f
+        READ f
+        POP content
+        EOF f
+        POP is_eof
+        CLOSE f
+        "#,
+        path
+    );
+    let (result, output) = run_and_capture(&code)?;
+    result?;
+
+    let code_with_print = format!(
+        r#"
+        OPEN "{}" "r"
+        POP f
+        READ f
+        POP content
+        EOF f
+        POP is_eof
+        PRINT is_eof
+        CLOSE f
+        "#,
+        path
+    );
+    let (result, output) = run_and_capture(&code_with_print)?;
+    result?;
+    assert!(output.contains("true"));
+
+    let code_partial = format!(
+        r#"
+        OPEN "{}" "r"
+        POP f
+        READLN f
+        POP line
+        EOF f
+        POP is_eof
+        PRINT is_eof
+        CLOSE f
+        "#,
+        path
+    );
+    let (result, output) = run_and_capture(&code_partial)?;
+    result?;
+    assert!(output.contains("false"));
+
+    Ok(())
+}
+
+#[test]
+fn test_file_open_error() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        OPEN "nonexistent_file_12345.txt" "r"
+    "#;
+    let result = run_code(code);
+    assert!(result.is_err());
+    Ok(())
+}
+
+#[test]
+fn test_file_write_read_with_variable() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_file = NamedTempFile::new()?;
+    let path = temp_file.path().to_str().unwrap().to_string();
+    std::fs::write(&path, "Data")?;
+    let code = format!(
+        r#"
+        OPEN "{}" "r"
+        POP f
+        READ f
+        POP content
+        PRINT "Content: " content
+        CLOSE f
+        "#,
+        path
+    );
+    let (result, output) = run_and_capture(&code)?;
+    result?;
+    assert!(output.contains("Content: Data"));
+    Ok(())
+}
+
+#[test]
+fn test_file_multiple_operations() -> Result<(), Box<dyn std::error::Error>> {
+    let temp_file = NamedTempFile::new()?;
+    let path = temp_file.path().to_str().unwrap().to_string();
+    let code = format!(
+        r#"
+        OPEN "{}" "w"
+        POP f
+        WRITELN f "First"
+        CLOSE f
+
+        OPEN "{}" "a"
+        POP f
+        WRITELN f "Second"
+        CLOSE f
+
+        OPEN "{}" "r"
+        POP f
+        READLN f
+        POP line1
+        READLN f
+        POP line2
+        CLOSE f
+        "#,
+        path, path, path
+    );
+    let result = run_code(&code);
+    result?;
+
+    let content = std::fs::read_to_string(&path)?;
+    assert_eq!(content, "First\nSecond\n");
     Ok(())
 }

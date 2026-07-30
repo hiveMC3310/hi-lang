@@ -4,6 +4,33 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
+#[derive(Debug)]
+pub struct FileHandle {
+    pub path: String,
+    pub reader: Option<std::io::BufReader<std::fs::File>>,
+    pub writer: Option<std::fs::File>,
+    pub eof: bool,
+}
+
+impl FileHandle {
+    pub fn new_reader(path: String, file: std::fs::File) -> Self {
+        Self {
+            path,
+            reader: Some(std::io::BufReader::new(file)),
+            writer: None,
+            eof: false,
+        }
+    }
+    pub fn new_writer(path: String, file: std::fs::File) -> Self {
+        Self {
+            path,
+            reader: None,
+            writer: Some(file),
+            eof: false,
+        }
+    }
+}
+
 /// Represents a value in the Hi language: integer, float, string, or boolean.
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -12,6 +39,7 @@ pub enum Value {
     String(String),
     Bool(bool),
     List(Rc<RefCell<Vec<Value>>>),
+    File(Rc<RefCell<FileHandle>>),
 }
 
 impl PartialEq for Value {
@@ -40,6 +68,7 @@ impl Value {
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::List(l) => !l.borrow().is_empty(),
+            Value::File(_) => false,
         }
     }
 }
@@ -61,6 +90,10 @@ impl fmt::Display for Value {
                     write!(f, "{}", val)?;
                 }
                 write!(f, "]")
+            }
+            Value::File(fh) => {
+                let handle = fh.borrow();
+                write!(f, "<file: {}>", handle.path)
             }
         }
     }

@@ -2,7 +2,8 @@
 
 **Hi** is a minimalist, stack‑based interpreted language that blends a **BASIC‑like syntax** with **Forth‑style stack
 operations**.  
-It supports variables, loops, conditionals, functions, interactive input, lists, and string operations — all written in
+It supports variables, loops, conditionals, functions, interactive input, lists, and string operations, also I/O work
+with files — all written in
 **Rust** for speed and safety.
 
 > **.hi** is the official file extension for Hi source files.

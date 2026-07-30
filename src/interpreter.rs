@@ -3,10 +3,10 @@
 use crate::commands::{BinOp, Command};
 use crate::error::{InterpError, InterpResult};
 use crate::tokenizer::Tokenizer;
-use crate::value::Value;
+use crate::value::{FileHandle, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{BufRead, Read, Write};
 use std::rc::Rc;
 
 /// A call frame: holds return address, local variables, and active loops for BREAK.
@@ -263,6 +263,8 @@ impl Interpreter {
                 )?;
                 Ok(Command::Let(name, value))
             }
+            "DUP" => Ok(Command::Dup),
+            "SWAP" => Ok(Command::Swap),
             "PRINT" => {
                 if tokens.len() < 2 {
                     return Err(InterpError::Syntax {
@@ -921,6 +923,127 @@ impl Interpreter {
                 )?;
                 Ok(Command::IndexOf(base, el))
             }
+            "OPEN" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "OPEN requires path and mode".to_string(),
+                    });
+                }
+                let path = tokens[1].clone();
+                let mode = tokens[2].clone();
+                Ok(Command::Open(path, mode))
+            }
+            "CLOSE" => {
+                let var = if tokens.len() >= 2 {
+                    let file = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    Some(file)
+                } else {
+                    None
+                };
+                Ok(Command::Close(var))
+            }
+            "READ" => {
+                if tokens.len() < 2 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "READ requires file and optionally variable name".to_string(),
+                    });
+                }
+                let file = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let var = if tokens.len() >= 3 {
+                    Some(tokens[2].clone())
+                } else {
+                    None
+                };
+                Ok(Command::Read(file, var))
+            }
+            "WRITE" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "WRITE requires file and value".to_string(),
+                    });
+                }
+                let file = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let value = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Write(file, value))
+            }
+            "READLN" => {
+                if tokens.len() < 2 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "READLN requires file and optionally variable name".to_string(),
+                    });
+                }
+                let file = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let var = if tokens.len() >= 3 {
+                    Some(tokens[2].clone())
+                } else {
+                    None
+                };
+                Ok(Command::Readln(file, var))
+            }
+            "WRITELN" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line: self.line_num + 1,
+                        message: "WRITELN requires file and value".to_string(),
+                    });
+                }
+                let file = Tokenizer::resolve_value(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                let value = Tokenizer::resolve_value(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                )?;
+                Ok(Command::Writeln(file, value))
+            }
+            "EOF" => {
+                let var = if tokens.len() >= 2 {
+                    let file = Tokenizer::resolve_value(
+                        &tokens[1],
+                        &self.stack,
+                        &self.globals,
+                        self.current_locals(),
+                    )?;
+                    Some(file)
+                } else {
+                    None
+                };
+                Ok(Command::Eof(var))
+            }
             _ => Err(InterpError::Syntax {
                 line: self.line_num + 1,
                 message: format!("Unknown command '{}'", cmd_str),
@@ -1239,6 +1362,27 @@ impl Interpreter {
                 } else {
                     self.globals.insert(name.clone(), value.clone());
                 }
+                self.line_num += 1;
+            }
+
+            Command::Dup => {
+                let val = self.stack.last().ok_or_else(|| InterpError::Runtime {
+                    line,
+                    message: "Stack underflow".to_string(),
+                })?;
+                self.stack.push(val.clone());
+                self.line_num += 1;
+            }
+
+            Command::Swap => {
+                if self.stack.len() < 2 {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: "SWAP requires at least two values on stack".to_string(),
+                    });
+                }
+                let len = self.stack.len();
+                self.stack.swap(len - 1, len - 2);
                 self.line_num += 1;
             }
 
@@ -1955,6 +2099,203 @@ impl Interpreter {
                     }
                 };
                 self.stack.push(result);
+                self.line_num += 1;
+            }
+
+            Command::Open(path, mode) => {
+                let handle = match mode.as_str() {
+                    "r" => {
+                        let file = std::fs::File::open(path).map_err(InterpError::Io)?;
+                        FileHandle::new_reader(path.clone(), file)
+                    }
+                    "w" => {
+                        let file = std::fs::File::create(path).map_err(InterpError::Io)?;
+                        FileHandle::new_writer(path.clone(), file)
+                    }
+                    "a" => {
+                        let file = std::fs::OpenOptions::new()
+                            .append(true)
+                            .open(path)
+                            .map_err(InterpError::Io)?;
+                        FileHandle::new_writer(path.clone(), file)
+                    }
+                    _ => {
+                        return Err(InterpError::Syntax {
+                            line,
+                            message: format!("Invalid file mode '{}' (use 'r', 'w', 'a')", mode),
+                        });
+                    }
+                };
+                self.stack.push(Value::File(Rc::new(RefCell::new(handle))));
+                self.line_num += 1;
+            }
+
+            Command::Close(file_opt) => {
+                let file_val = match file_opt {
+                    Some(v) => v.clone(),
+                    None => self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: "CLOSE needs a file on stack".to_string(),
+                    })?,
+                };
+                let fh = match file_val {
+                    Value::File(fh) => fh,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: "CLOSE expects a file".to_string(),
+                        });
+                    }
+                };
+                let mut handle = fh.borrow_mut();
+
+                if let Some(ref mut writer) = handle.writer {
+                    writer.flush().map_err(InterpError::Io)?;
+                }
+
+                handle.reader = None;
+                handle.writer = None;
+                self.line_num += 1;
+            }
+
+            Command::Read(file_val, var_opt) => {
+                let fh = match file_val {
+                    Value::File(fh) => fh,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("READ requires a file, got {:?}", file_val),
+                        });
+                    }
+                };
+
+                let mut handle = fh.borrow_mut();
+                let reader = handle.reader.as_mut().ok_or_else(|| InterpError::Runtime {
+                    line,
+                    message: "File is not open for reading".to_string(),
+                })?;
+
+                let mut content = String::new();
+                reader
+                    .read_to_string(&mut content)
+                    .map_err(InterpError::Io)?;
+                handle.eof = true;
+
+                let value = Value::String(content);
+                if let Some(var) = var_opt {
+                    if self.is_global_scope() {
+                        self.globals.insert(var.clone(), value);
+                    } else if let Some(locals) = self.current_locals_mut() {
+                        locals.insert(var.clone(), value);
+                    } else {
+                        self.globals.insert(var.clone(), value);
+                    }
+                } else {
+                    self.stack.push(value);
+                }
+                self.line_num += 1;
+            }
+
+            Command::Write(file_val, value) => {
+                let fh = match file_val {
+                    Value::File(fh) => fh,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("WRITE requires a file, got {:?}", file_val),
+                        });
+                    }
+                };
+                let mut handle = fh.borrow_mut();
+                let writer = handle.writer.as_mut().ok_or_else(|| InterpError::Runtime {
+                    line,
+                    message: "File is not open for writing".to_string(),
+                })?;
+                write!(writer, "{}", value).map_err(InterpError::Io)?;
+                self.line_num += 1;
+            }
+
+            Command::Readln(file_val, var_opt) => {
+                let fh = match file_val {
+                    Value::File(fh) => fh,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("READLN requires a file, got {:?}", file_val),
+                        });
+                    }
+                };
+                let mut handle = fh.borrow_mut();
+                let reader = handle.reader.as_mut().ok_or_else(|| InterpError::Runtime {
+                    line,
+                    message: "File is not open for reading".to_string(),
+                })?;
+
+                let mut line = String::new();
+                let bytes = reader.read_line(&mut line).map_err(InterpError::Io)?;
+                if bytes == 0 {
+                    handle.eof = true;
+                }
+
+                let value = Value::String(line);
+                if let Some(var) = var_opt {
+                    if self.is_global_scope() {
+                        self.globals.insert(var.clone(), value);
+                    } else if let Some(locals) = self.current_locals_mut() {
+                        locals.insert(var.clone(), value);
+                    } else {
+                        self.globals.insert(var.clone(), value);
+                    }
+                } else {
+                    self.stack.push(value);
+                }
+                self.line_num += 1;
+            }
+
+            Command::Writeln(file_val, value) => {
+                let fh = match file_val {
+                    Value::File(fh) => fh,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("WRITE requires a file, got {:?}", file_val),
+                        });
+                    }
+                };
+                let mut handle = fh.borrow_mut();
+                let writer = handle.writer.as_mut().ok_or_else(|| InterpError::Runtime {
+                    line,
+                    message: "File is not open for writing".to_string(),
+                })?;
+                writeln!(writer, "{}", value).map_err(InterpError::Io)?;
+                self.line_num += 1;
+            }
+
+            Command::Eof(file_opt) => {
+                let file_val = match file_opt {
+                    Some(v) => v.clone(),
+                    None => self.stack.pop().ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: "EOF needs a file on stack".to_string(),
+                    })?,
+                };
+                let fh = match file_val {
+                    Value::File(fh) => fh,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: "EOF expects a file".to_string(),
+                        });
+                    }
+                };
+                let handle = fh.borrow();
+
+                let is_eof = if handle.reader.is_none() && handle.writer.is_none() {
+                    true
+                } else {
+                    handle.eof
+                };
+                self.stack.push(Value::Bool(is_eof));
                 self.line_num += 1;
             }
         }
