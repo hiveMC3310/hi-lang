@@ -1,28 +1,21 @@
+// Recursive factorial function
+
 FUNC factorial
-	POP n
-	LET result 1
-	LET i 1
-
-	LE i n
-	POP cond
-
-	WHILE cond
-		MUL result i
-		POP result
-
-		ADD i 1
-		POP i
-
-		LE i n
-		POP cond
-	DO
-
-	PUSH result
+    // expects n on stack
+    POP n
+    IF EQ n 0
+        PUSH 1          // base case: 0! = 1
+    ELSE
+        PUSH n
+        SUB n 1
+        CALL factorial  // recursive call
+        MUL             // multiply n with factorial(n-1)
+    ENDIF
+    RET
 ENDF
 
 INPUT "Enter a number: " n
 PUSH n
 CALL factorial
 POP result
-
-PRINT "Factorial " n " = " result
+PRINT "Factorial of " n " = " result

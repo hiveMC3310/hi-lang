@@ -23,8 +23,18 @@ pub enum InterpError {
     #[error("Function '{name}' not found at line {line}")]
     FuncNotFound { name: String, line: usize },
 
-    #[error("Unclosed block: {block}")]
-    UnclosedBlock { block: String },
+    #[error("Unclosed block '{block}' at line {line}")]
+    UnclosedBlock { block: String, line: usize },
+
+    #[error("Cyclic import detected: {path}")]
+    CyclicImport { path: String },
+
+    #[error("Import error at line {line} for '{}': {message}", path)]
+    ImportError {
+        path: String,
+        message: String,
+        line: usize,
+    },
 }
 
 impl InterpError {
@@ -34,6 +44,9 @@ impl InterpError {
             InterpError::Syntax { line, .. } => Some(*line),
             InterpError::Semantic { line, .. } => Some(*line),
             InterpError::Runtime { line, .. } => Some(*line),
+            InterpError::FuncNotFound { line, .. } => Some(*line),
+            InterpError::UnclosedBlock { line, .. } => Some(*line),
+            InterpError::ImportError { line, .. } => Some(*line),
             _ => None,
         }
     }

@@ -33,7 +33,7 @@ pub struct Interpreter {
     pub lines: Vec<String>,
     pub stack: Vec<Value>,
     pub globals: HashMap<String, Value>,
-    pub call_stack: Vec<CallFrame>,
+    call_stack: Vec<CallFrame>,
 
     if_jump_map: HashMap<usize, usize>,
     else_jump_map: HashMap<usize, usize>,
@@ -182,18 +182,24 @@ impl Interpreter {
         }
 
         if !if_stack.is_empty() {
+            let (start_line, _) = if_stack[0];
             return Err(InterpError::UnclosedBlock {
                 block: "IF".to_string(),
+                line: start_line + 1,
             });
         }
         if !while_stack.is_empty() {
+            let start_line = while_stack[0];
             return Err(InterpError::UnclosedBlock {
                 block: "WHILE".to_string(),
+                line: start_line + 1,
             });
         }
         if !func_stack.is_empty() {
+            let (_, start_line) = func_stack[0];
             return Err(InterpError::UnclosedBlock {
                 block: "FUNC".to_string(),
+                line: start_line + 1,
             });
         }
 
@@ -215,19 +221,35 @@ impl Interpreter {
         self.call_stack.last_mut().map(|frame| &mut frame.locals)
     }
 
+    /// Completely resets the interpreter state to the initial state.
+    pub fn clear_state(&mut self) {
+        self.lines.clear();
+        self.stack.clear();
+        self.globals.clear();
+        self.call_stack.clear();
+        self.call_stack.push(CallFrame::new(0));
+        self.line_num = 0;
+        self.if_jump_map.clear();
+        self.else_jump_map.clear();
+        self.loop_start_map.clear();
+        self.loop_back_map.clear();
+        self.func_start_map.clear();
+        self.func_end_map.clear();
+    }
+
     /// Parses a token list into a Command.
     fn parse_command(&self, tokens: &[String]) -> InterpResult<Command> {
         if tokens.is_empty() {
             return Err(InterpError::Internal("Empty token list".to_string()));
         }
         let cmd_str = tokens[0].to_uppercase();
-
+        let line = self.line_num + 1;
         match cmd_str.as_str() {
             "HELLO" => Ok(Command::Hello),
             "PUSH" => {
                 if tokens.len() < 2 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "PUSH requires a value".to_string(),
                     });
                 }
@@ -236,6 +258,7 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Push(value))
             }
@@ -250,7 +273,7 @@ impl Interpreter {
             "LET" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "LET requires name and value".to_string(),
                     });
                 }
@@ -260,6 +283,7 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Let(name, value))
             }
@@ -268,7 +292,7 @@ impl Interpreter {
             "PRINT" => {
                 if tokens.len() < 2 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "PRINT requires at least one argument".to_string(),
                     });
                 }
@@ -279,6 +303,7 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     args.push(v);
                 }
@@ -290,7 +315,7 @@ impl Interpreter {
                     3 => (Some(tokens[1].clone()), tokens[2].clone()),
                     _ => {
                         return Err(InterpError::Syntax {
-                            line: self.line_num + 1,
+                            line,
                             message: "INPUT takes 1 or 2 arguments".to_string(),
                         });
                     }
@@ -316,7 +341,7 @@ impl Interpreter {
                     "POW" => BinOp::Pow,
                     _ => {
                         return Err(InterpError::Syntax {
-                            line: self.line_num + 1,
+                            line,
                             message: format!("Unknown binary operator '{}'", cmd_str),
                         });
                     }
@@ -328,7 +353,7 @@ impl Interpreter {
                 if tokens.len() == 1 {
                     if self.stack.len() < 1 {
                         return Err(InterpError::Semantic {
-                            line: self.line_num + 1,
+                            line,
                             message: "Not enough values on stack for logic operation".to_string(),
                         });
                     }
@@ -339,11 +364,12 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     Ok(Command::Not(Some(a)))
                 } else {
                     Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "Invalid arguments for logic operation".to_string(),
                     })
                 }
@@ -358,12 +384,14 @@ impl Interpreter {
                             &self.stack,
                             &self.globals,
                             self.current_locals(),
+                            line,
                         )?;
                         let right = Tokenizer::resolve_value(
                             &tokens[3],
                             &self.stack,
                             &self.globals,
                             self.current_locals(),
+                            line,
                         )?;
                         let op = match op_str.as_str() {
                             "EQ" => BinOp::Eq,
@@ -376,7 +404,7 @@ impl Interpreter {
                             "OR" => BinOp::Or,
                             _ => {
                                 return Err(InterpError::Syntax {
-                                    line: self.line_num + 1,
+                                    line,
                                     message: format!(
                                         "Unknown comparison/logical operator '{}'",
                                         op_str
@@ -384,8 +412,7 @@ impl Interpreter {
                                 });
                             }
                         };
-                        let bool_result =
-                            Self::evaluate_binary_op_bool(op, &left, &right, self.line_num + 1)?;
+                        let bool_result = Self::evaluate_binary_op_bool(op, &left, &right, line)?;
                         return Ok(Command::If(Value::Bool(bool_result)));
                     }
                 }
@@ -395,11 +422,12 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     return Ok(Command::If(cond));
                 }
                 Err(InterpError::Syntax {
-                    line: self.line_num + 1,
+                    line,
                     message: "IF requires a condition or a comparison expression (e.g., IF EQ x 1)"
                         .to_string(),
                 })
@@ -416,12 +444,14 @@ impl Interpreter {
                             &self.stack,
                             &self.globals,
                             self.current_locals(),
+                            line,
                         )?;
                         let right = Tokenizer::resolve_value(
                             &tokens[3],
                             &self.stack,
                             &self.globals,
                             self.current_locals(),
+                            line,
                         )?;
                         let op = match op_str.as_str() {
                             "EQ" => BinOp::Eq,
@@ -434,7 +464,7 @@ impl Interpreter {
                             "OR" => BinOp::Or,
                             _ => {
                                 return Err(InterpError::Syntax {
-                                    line: self.line_num + 1,
+                                    line,
                                     message: format!(
                                         "Unknown comparison/logical operator '{}'",
                                         op_str
@@ -442,8 +472,7 @@ impl Interpreter {
                                 });
                             }
                         };
-                        let bool_result =
-                            Self::evaluate_binary_op_bool(op, &left, &right, self.line_num + 1)?;
+                        let bool_result = Self::evaluate_binary_op_bool(op, &left, &right, line)?;
                         return Ok(Command::While(Value::Bool(bool_result)));
                     }
                 }
@@ -453,11 +482,12 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     return Ok(Command::While(cond));
                 }
                 Err(InterpError::Syntax {
-                    line: self.line_num + 1,
+                    line,
                     message: "WHILE requires a condition".to_string(),
                 })
             }
@@ -466,7 +496,7 @@ impl Interpreter {
             "FUNC" => {
                 if tokens.len() < 2 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "FUNC requires a name".to_string(),
                     });
                 }
@@ -477,7 +507,7 @@ impl Interpreter {
             "CALL" => {
                 if tokens.len() < 2 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "CALL requires a function name".to_string(),
                     });
                 }
@@ -490,19 +520,20 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     Ok(Command::Len(Some(val)))
                 } else if tokens.len() == 1 {
                     if self.stack.is_empty() {
                         return Err(InterpError::Semantic {
-                            line: self.line_num + 1,
+                            line,
                             message: "LEN requires a value on stack".to_string(),
                         });
                     }
                     Ok(Command::Len(None))
                 } else {
                     Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "LEN takes 0 or 1 argument".to_string(),
                     })
                 }
@@ -514,25 +545,27 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     let b = Tokenizer::resolve_value(
                         &tokens[2],
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     Ok(Command::Concat(Some(a), Some(b)))
                 } else if tokens.len() == 1 {
                     if self.stack.len() < 2 {
                         return Err(InterpError::Semantic {
-                            line: self.line_num + 1,
+                            line,
                             message: "CONCAT requires two values on stack".to_string(),
                         });
                     }
                     Ok(Command::Concat(None, None))
                 } else {
                     Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "CONCAT takes 0 or 2 arguments".to_string(),
                     })
                 }
@@ -544,31 +577,34 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     let start = Tokenizer::resolve_value(
                         &tokens[2],
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     let len = Tokenizer::resolve_value(
                         &tokens[3],
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     Ok(Command::Substr(Some(s), Some(start), Some(len)))
                 } else if tokens.len() == 1 {
                     if self.stack.len() < 3 {
                         return Err(InterpError::Semantic {
-                            line: self.line_num + 1,
+                            line,
                             message: "SUBSTR requires three values on stack".to_string(),
                         });
                     }
                     Ok(Command::Substr(None, None, None))
                 } else {
                     Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "SUBSTR takes 0 or 3 arguments".to_string(),
                     })
                 }
@@ -580,19 +616,20 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     Ok(Command::Upper(Some(val)))
                 } else if tokens.len() == 1 {
                     if self.stack.is_empty() {
                         return Err(InterpError::Semantic {
-                            line: self.line_num + 1,
+                            line,
                             message: "UPPER requires a value on stack".to_string(),
                         });
                     }
                     Ok(Command::Upper(None))
                 } else {
                     Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "UPPER takes 0 or 1 argument".to_string(),
                     })
                 }
@@ -604,19 +641,20 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     Ok(Command::Lower(Some(val)))
                 } else if tokens.len() == 1 {
                     if self.stack.is_empty() {
                         return Err(InterpError::Semantic {
-                            line: self.line_num + 1,
+                            line,
                             message: "LOWER requires a value on stack".to_string(),
                         });
                     }
                     Ok(Command::Lower(None))
                 } else {
                     Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "LOWER takes 0 or 1 argument".to_string(),
                     })
                 }
@@ -628,19 +666,20 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     Ok(Command::Trim(Some(val)))
                 } else if tokens.len() == 1 {
                     if self.stack.is_empty() {
                         return Err(InterpError::Semantic {
-                            line: self.line_num + 1,
+                            line,
                             message: "TRIM requires a value on stack".to_string(),
                         });
                     }
                     Ok(Command::Trim(None))
                 } else {
                     Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "TRIM takes 0 or 1 argument".to_string(),
                     })
                 }
@@ -653,6 +692,7 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     elements.push(val);
                 }
@@ -661,7 +701,7 @@ impl Interpreter {
             "INDEX" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "INDEX requires two arguments: list and index".to_string(),
                     });
                 }
@@ -670,19 +710,21 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let idx_val = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Index(list_val, idx_val))
             }
             "APPEND" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "APPEND requires two arguments: list and element".to_string(),
                     });
                 }
@@ -691,19 +733,21 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let el_val = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Append(list_val, el_val))
             }
             "CONTAINS" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "CONTAINS requires two arguments: base and element".to_string(),
                     });
                 }
@@ -712,19 +756,21 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let el = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Contains(base, el))
             }
             "STARTS" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "STARTS requires two arguments: base and prefix".to_string(),
                     });
                 }
@@ -733,19 +779,21 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let prefix = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Starts(base, prefix))
             }
             "ENDS" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "ENDS requires two arguments: base and suffix".to_string(),
                     });
                 }
@@ -754,19 +802,21 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let suffix = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Ends(base, suffix))
             }
             "REPLACE" => {
                 if tokens.len() < 4 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "REPLACE requires three arguments: base, old, new".to_string(),
                     });
                 }
@@ -775,25 +825,28 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let old = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let new = Tokenizer::resolve_value(
                     &tokens[3],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Replace(base, old, new))
             }
             "SPLIT" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "SPLIT requires two arguments: base and delimiter".to_string(),
                     });
                 }
@@ -802,19 +855,21 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let delim = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Split(base, delim))
             }
             "SLICE" => {
                 if tokens.len() < 4 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "SLICE requires three arguments: list, start, len".to_string(),
                     });
                 }
@@ -823,25 +878,28 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let start = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let len = Tokenizer::resolve_value(
                     &tokens[3],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Slice(list, start, len))
             }
             "REVERSE" => {
                 if tokens.len() < 2 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "REVERSE requires one argument (string or list)".to_string(),
                     });
                 }
@@ -850,13 +908,14 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Reverse(base))
             }
             "INSERT" => {
                 if tokens.len() < 4 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "INSERT requires three arguments: list, index, element"
                             .to_string(),
                     });
@@ -866,25 +925,28 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let idx = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let el = Tokenizer::resolve_value(
                     &tokens[3],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Insert(list, idx, el))
             }
             "REMOVE" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "REMOVE requires two arguments: list and index".to_string(),
                     });
                 }
@@ -893,19 +955,21 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let idx = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Remove(list, idx))
             }
             "INDEXOF" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "INDEXOF requires two arguments: base and element".to_string(),
                     });
                 }
@@ -914,19 +978,21 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let el = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::IndexOf(base, el))
             }
             "OPEN" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "OPEN requires path and mode".to_string(),
                     });
                 }
@@ -941,6 +1007,7 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     Some(file)
                 } else {
@@ -951,7 +1018,7 @@ impl Interpreter {
             "READ" => {
                 if tokens.len() < 2 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "READ requires file and optionally variable name".to_string(),
                     });
                 }
@@ -960,6 +1027,7 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let var = if tokens.len() >= 3 {
                     Some(tokens[2].clone())
@@ -971,7 +1039,7 @@ impl Interpreter {
             "WRITE" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "WRITE requires file and value".to_string(),
                     });
                 }
@@ -980,19 +1048,21 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let value = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Write(file, value))
             }
             "READLN" => {
                 if tokens.len() < 2 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "READLN requires file and optionally variable name".to_string(),
                     });
                 }
@@ -1001,6 +1071,7 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let var = if tokens.len() >= 3 {
                     Some(tokens[2].clone())
@@ -1012,7 +1083,7 @@ impl Interpreter {
             "WRITELN" => {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
-                        line: self.line_num + 1,
+                        line,
                         message: "WRITELN requires file and value".to_string(),
                     });
                 }
@@ -1021,12 +1092,14 @@ impl Interpreter {
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 let value = Tokenizer::resolve_value(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
+                    line,
                 )?;
                 Ok(Command::Writeln(file, value))
             }
@@ -1037,6 +1110,7 @@ impl Interpreter {
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
+                        line,
                     )?;
                     Some(file)
                 } else {
@@ -1045,7 +1119,7 @@ impl Interpreter {
                 Ok(Command::Eof(var))
             }
             _ => Err(InterpError::Syntax {
-                line: self.line_num + 1,
+                line,
                 message: format!("Unknown command '{}'", cmd_str),
             }),
         }
@@ -1067,12 +1141,14 @@ impl Interpreter {
                 &self.stack,
                 &self.globals,
                 self.current_locals(),
+                self.line_num + 1,
             )?;
             let b = Tokenizer::resolve_value(
                 &tokens[2],
                 &self.stack,
                 &self.globals,
                 self.current_locals(),
+                self.line_num + 1,
             )?;
             Ok((Some(a), Some(b)))
         } else {
@@ -1264,10 +1340,17 @@ impl Interpreter {
             (BinOp::Ge, Some(ord)) => Ok(ord == Ordering::Greater || ord == Ordering::Equal),
             (BinOp::Lt, Some(ord)) => Ok(ord == Ordering::Less),
             (BinOp::Le, Some(ord)) => Ok(ord == Ordering::Less || ord == Ordering::Equal),
-            _ => Err(InterpError::Runtime {
-                line,
-                message: format!("Cannot compare values of types {:?} and {:?}", left, right),
-            }),
+            _ => {
+                let left_type = crate::utils::type_name(left);
+                let right_type = crate::utils::type_name(right);
+                Err(InterpError::Runtime {
+                    line,
+                    message: format!(
+                        "Cannot compare values of types '{}' and '{}'",
+                        left_type, right_type
+                    ),
+                })
+            }
         }
     }
 
@@ -1293,9 +1376,14 @@ impl Interpreter {
                     Value::Int(i) => *i as f64,
                     Value::Float(f) => *f,
                     _ => {
+                        let a_type = crate::utils::type_name(a);
+                        let b_type = crate::utils::type_name(b);
                         return Err(InterpError::Runtime {
                             line,
-                            message: "Operands must be numbers".to_string(),
+                            message: format!(
+                                "Arithmetic operation requires numbers, got '{}' and '{}'",
+                                a_type, b_type
+                            ),
                         });
                     }
                 };
@@ -1303,9 +1391,14 @@ impl Interpreter {
                     Value::Int(i) => *i as f64,
                     Value::Float(f) => *f,
                     _ => {
+                        let a_type = crate::utils::type_name(a);
+                        let b_type = crate::utils::type_name(b);
                         return Err(InterpError::Runtime {
                             line,
-                            message: "Operands must be numbers".to_string(),
+                            message: format!(
+                                "Arithmetic operation requires numbers, got '{}' and '{}'",
+                                a_type, b_type
+                            ),
                         });
                     }
                 };
@@ -1461,7 +1554,10 @@ impl Interpreter {
             Command::If(cond) => {
                 if !cond.as_bool() {
                     let target = self.if_jump_map.get(&self.line_num).ok_or_else(|| {
-                        InterpError::Internal("No matching jump target for IF".to_string())
+                        InterpError::Semantic {
+                            line,
+                            message: "Unmatched IF (no ENDIF or ELSE)".to_string(),
+                        }
                     })?;
                     self.line_num = *target + 1;
                 } else {
@@ -1471,7 +1567,10 @@ impl Interpreter {
 
             Command::Else => {
                 let target = self.else_jump_map.get(&self.line_num).ok_or_else(|| {
-                    InterpError::Internal("No matching ENDIF for ELSE".to_string())
+                    InterpError::Semantic {
+                        line,
+                        message: "Unmatched ELSE (no ENDIF)".to_string(),
+                    }
                 })?;
                 self.line_num = *target;
             }
@@ -1483,7 +1582,10 @@ impl Interpreter {
             Command::While(cond) => {
                 if !cond.as_bool() {
                     let target = self.loop_start_map.get(&self.line_num).ok_or_else(|| {
-                        InterpError::Internal("No matching DO for WHILE".to_string())
+                        InterpError::Semantic {
+                            line,
+                            message: "Unmatched WHILE (no DO)".to_string(),
+                        }
                     })?;
                     self.line_num = target + 1;
                 } else {
@@ -1499,7 +1601,10 @@ impl Interpreter {
 
             Command::Do => {
                 let target = self.loop_back_map.get(&self.line_num).ok_or_else(|| {
-                    InterpError::Internal("DO without matching WHILE".to_string())
+                    InterpError::Semantic {
+                        line,
+                        message: "DO without matching WHILE".to_string(),
+                    }
                 })?;
 
                 let frame = self
@@ -2105,18 +2210,34 @@ impl Interpreter {
             Command::Open(path, mode) => {
                 let handle = match mode.as_str() {
                     "r" => {
-                        let file = std::fs::File::open(path).map_err(InterpError::Io)?;
+                        let file = std::fs::File::open(path).map_err(|e| InterpError::Runtime {
+                            line,
+                            message: format!("Cannot open file '{}' for reading: {}", path, e),
+                        })?;
                         FileHandle::new_reader(path.clone(), file)
                     }
                     "w" => {
-                        let file = std::fs::File::create(path).map_err(InterpError::Io)?;
+                        let file =
+                            std::fs::File::create(path).map_err(|e| InterpError::Runtime {
+                                line,
+                                message: format!(
+                                    "Cannot create file '{}' for writing: {}",
+                                    path, e
+                                ),
+                            })?;
                         FileHandle::new_writer(path.clone(), file)
                     }
                     "a" => {
                         let file = std::fs::OpenOptions::new()
                             .append(true)
                             .open(path)
-                            .map_err(InterpError::Io)?;
+                            .map_err(|e| InterpError::Runtime {
+                                line,
+                                message: format!(
+                                    "Cannot open file '{}' for appending: {}",
+                                    path, e
+                                ),
+                            })?;
                         FileHandle::new_writer(path.clone(), file)
                     }
                     _ => {

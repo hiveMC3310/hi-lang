@@ -30,3 +30,15 @@ pub fn is_zero(v: &Value) -> bool {
         _ => false,
     }
 }
+
+/// Returns a human-readable type name for a Value
+pub fn type_name(v: &Value) -> &'static str {
+    match v {
+        Value::Int(_) => "integer",
+        Value::Float(_) => "float",
+        Value::String(_) => "string",
+        Value::Bool(_) => "boolean",
+        Value::List(_) => "list",
+        Value::File(_) => "file",
+    }
+}

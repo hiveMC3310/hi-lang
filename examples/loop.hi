@@ -7,7 +7,10 @@ WHILE running
     PRINT i
     ADD i 1
     POP i
+    IF EQ i 5
+        BREAK
+    ENDIF
     LT i 10
     POP running
 DO
-PRINT "Loop finished"
+PRINT "Loop finished (i = " i ")"

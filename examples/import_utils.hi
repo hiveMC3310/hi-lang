@@ -1,0 +1,8 @@
+// Utility file for IMPORT demonstration
+
+FUNC greet
+    PRINT "Hello from imported module!"
+    RET
+ENDF
+
+LET GLOBAL_MESSAGE "I am global"

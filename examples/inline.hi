@@ -1,3 +1,5 @@
+// Inline conditions for IF and WHILE (v1.1.0+)
+
 LET x 5
 IF EQ x 5
     PRINT "x is 5"

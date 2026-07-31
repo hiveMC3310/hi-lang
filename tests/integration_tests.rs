@@ -1,6 +1,8 @@
-use hi_interpreter::error::InterpResult;
+use hi_interpreter::error::{InterpError, InterpResult};
 use hi_interpreter::interpreter::Interpreter;
-use std::io::Read;
+use hi_interpreter::preprocessor::preprocess_file;
+use std::io::{Read, Write};
+use std::path::Path;
 use stdio_override::StdoutOverride;
 use tempfile::NamedTempFile;
 
@@ -770,4 +772,120 @@ fn test_file_multiple_operations() -> Result<(), Box<dyn std::error::Error>> {
     let content = std::fs::read_to_string(&path)?;
     assert_eq!(content, "First\nSecond\n");
     Ok(())
+}
+
+// ---------- IMPORT tests ----------
+fn create_temp_file(content: &str, suffix: &str) -> (NamedTempFile, String) {
+    let mut file = NamedTempFile::with_suffix(suffix).unwrap();
+    file.write_all(content.as_bytes()).unwrap();
+    let path = file.path().to_str().unwrap().to_string();
+    (file, path)
+}
+
+#[test]
+fn test_import_simple() {
+    let (_file_b, path_b) = create_temp_file("LET x 10\nPRINT x\n", ".hi");
+    let code_a = format!(r#"IMPORT "{}""#, path_b);
+    let (_file_a, path_a) = create_temp_file(&code_a, ".hi");
+
+    let result = preprocess_file(Path::new(&path_a)).unwrap();
+    let expected = vec!["LET x 10".to_string(), "PRINT x".to_string()];
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_import_double() {
+    let (_file_lib, path_lib) = create_temp_file("LET y 5\n", ".hi");
+    let code_a = format!(r#"IMPORT "{}""#, path_lib);
+    let code_b = format!(r#"IMPORT "{}""#, path_lib);
+    let main_code = format!("{}\n{}", code_a, code_b);
+    let (_file_main, path_main) = create_temp_file(&main_code, ".hi");
+
+    let result = preprocess_file(Path::new(&path_main)).unwrap();
+    // Should appear only once
+    let expected = vec!["LET y 5".to_string()];
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_import_cyclic() {
+    let dir = tempfile::tempdir().unwrap();
+    let path_a = dir.path().join("a.hi");
+    let path_b = dir.path().join("b.hi");
+    std::fs::write(&path_a, r#"IMPORT "b.hi""#).unwrap();
+    std::fs::write(&path_b, r#"IMPORT "a.hi""#).unwrap();
+
+    let result = preprocess_file(&path_a);
+    assert!(result.is_err());
+    match result {
+        Err(InterpError::CyclicImport { path }) => {
+            assert!(path.contains("a.hi") || path.contains("b.hi"));
+        }
+        Err(InterpError::ImportError {
+            path,
+            message,
+            line: _,
+        }) => {
+            // Now we wrap cyclic import error into ImportError
+            assert!(message.contains("Cyclic import"));
+            assert!(path.contains("b.hi") || path.contains("a.hi"));
+        }
+        _ => panic!("Expected CyclicImport or ImportError with cyclic message"),
+    }
+}
+
+#[test]
+fn test_import_extension() {
+    let (_file_b, path_b) = create_temp_file("some code", ""); // без суффикса
+    let code_a = format!(r#"IMPORT "{}""#, path_b);
+    let (_file_a, path_a) = create_temp_file(&code_a, ".hi");
+
+    let result = preprocess_file(Path::new(&path_a));
+    assert!(result.is_err());
+    match result {
+        Err(InterpError::ImportError {
+            path,
+            message,
+            line: _,
+        }) => {
+            assert_eq!(path, path_b);
+            assert!(message.contains(".hi"));
+        }
+        _ => panic!("Expected ImportError"),
+    }
+}
+
+#[test]
+fn test_import_nested() {
+    let (_file_c, path_c) = create_temp_file("LET z 7\n", ".hi");
+    let code_b = format!(r#"IMPORT "{}""#, path_c);
+    let (_file_b, path_b) = create_temp_file(&code_b, ".hi");
+    let code_a = format!(r#"IMPORT "{}""#, path_b);
+    let (_file_a, path_a) = create_temp_file(&code_a, ".hi");
+
+    let result = preprocess_file(Path::new(&path_a)).unwrap();
+    let expected = vec!["LET z 7".to_string()];
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_import_case_insensitive() {
+    let (_file_lib, path_lib) = create_temp_file("PRINT 42\n", ".hi");
+    let code_a = format!(r#"import "{}""#, path_lib); // lowercase
+    let (_file_a, path_a) = create_temp_file(&code_a, ".hi");
+
+    let result = preprocess_file(Path::new(&path_a)).unwrap();
+    let expected = vec!["PRINT 42".to_string()];
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_import_with_comments() {
+    let (_file_lib, path_lib) = create_temp_file("PRINT 100\n", ".hi");
+    let code_a = format!(r#"IMPORT "{}" // comment"#, path_lib);
+    let (_file_a, path_a) = create_temp_file(&code_a, ".hi");
+
+    let result = preprocess_file(Path::new(&path_a)).unwrap();
+    let expected = vec!["PRINT 100".to_string()];
+    assert_eq!(result, expected);
 }

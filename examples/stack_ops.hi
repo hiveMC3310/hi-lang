@@ -1,0 +1,18 @@
+// Demonstration of DUP and SWAP stack operations
+
+PUSH 10
+PUSH 20
+
+// DUP duplicates the top value
+DUP
+POP dup_val
+PRINT "Duplicated value: " dup_val   // prints 20
+
+// After DUP, stack has [10, 20, 20] but we popped one 20,
+// now stack is [10, 20] again.
+
+// SWAP swaps top two values
+SWAP
+POP a
+POP b
+PRINT "After SWAP: a=" a ", b=" b   // a should be 10 (was 20), b should be 20 (was 10)

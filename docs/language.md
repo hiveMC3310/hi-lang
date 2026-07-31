@@ -187,6 +187,41 @@ PRINT "Read: " line
 CLOSE f
 ```
 
+### Importing Files (v1.6.0+)
+
+The `IMPORT` directive allows you to include code from other `.hi` files.  
+This makes it possible to split your program into multiple modules, reuse functions, and organise larger projects.
+
+**Syntax:**
+
+```hi
+IMPORT "path/to/file.hi"
+```
+
+Paths are resolved **relative to the current file**. Circular imports are detected and blocked (each file is imported
+only once).
+
+**Example:**
+
+`utils.hi`:
+
+```hi
+FUNC greet
+    PRINT "Hello from utils!"
+RET
+ENDF
+```
+
+`main.hi`:
+
+```hi
+IMPORT "utils.hi"
+CALL greet
+```
+
+The preprocessor expands the `IMPORT` directive before the interpreter runs, so the interpreter sees a single flat list
+of lines.
+
 ### Control Flow
 
 | Command           | Description                                                                                                                                                                      |
@@ -345,17 +380,18 @@ until the block is properly closed.
 
 **Special commands** (start with a colon):
 
-| Command            | Description                                   |
-|--------------------|-----------------------------------------------|
-| `:exit` or `:quit` | Exits the REPL.                               |
-| `:clear`           | Clears the stack and all global variables.    |
-| `:vars`            | Prints all global variables and their values. |
-| `:stack`           | Prints the current contents of the stack.     |
+| Command            | Description                                                                               |
+|--------------------|-------------------------------------------------------------------------------------------|
+| `:exit` or `:quit` | Exits the REPL.                                                                           |
+| `:clear`           | Clears the stack and all global variables.                                                |
+| `:vars`            | Prints all global variables and their values.                                             |
+| `:stack`           | Prints the current contents of the stack.                                                 |
+| `:load "file.hi"`  | Loads and executes a `.hi` file in the current REPL session (file is imported only once). |
 
 Example session:
 
 ```
-Hi REPL v1.5.0 — type :exit or :quit to quit
+Hi REPL v1.6.0 — type :exit or :quit to quit
 Enter commands (multi-line blocks like IF/WHILE/FUNC are supported)
 
 hi> LET x "Hello World!"

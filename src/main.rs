@@ -3,15 +3,18 @@
 mod commands;
 mod error;
 mod interpreter;
+mod preprocessor;
 mod repl;
 mod tokenizer;
 mod utils;
 mod value;
 
 use crate::interpreter::Interpreter;
-use anyhow::{Context, Result};
+use crate::preprocessor::preprocess_file;
+use anyhow::Result;
 use clap::Parser;
 use colored::*;
+use std::path::Path;
 
 /// Command-line arguments.
 #[derive(Parser)]
@@ -37,11 +40,10 @@ fn main() -> Result<()> {
         eprintln!("{}", "Incorrect file extension".red().bold());
         std::process::exit(1);
     }
-    let content = std::fs::read_to_string(&filename)
-        .with_context(|| format!("Failed to read file '{}'", filename))?;
 
-    let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-    let mut interpreter = Interpreter::new(lines);
+    let root_path = Path::new(&filename);
+    let processed_lines = preprocess_file(root_path)?;
+    let mut interpreter = Interpreter::new(processed_lines);
 
     if let Err(e) = interpreter.run() {
         eprintln!("{} {}", "error:".red().bold(), e);

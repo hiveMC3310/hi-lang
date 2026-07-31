@@ -75,12 +75,13 @@ impl Tokenizer {
         stack: &[Value],
         globals: &HashMap<String, Value>,
         locals: Option<&HashMap<String, Value>>,
+        line: usize,
     ) -> InterpResult<Value> {
         if token == "SP" {
-            return stack
-                .last()
-                .cloned()
-                .ok_or(InterpError::Internal("Stack is empty".to_string()));
+            return stack.last().cloned().ok_or(InterpError::Runtime {
+                line,
+                message: "SP used with empty stack".to_string(),
+            });
         }
         if let Some(locals) = locals
             && let Some(v) = locals.get(token)

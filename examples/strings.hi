@@ -1,0 +1,56 @@
+// String operations (v1.4.0+)
+
+LET s "Hello, world!"
+
+// Length
+LEN s
+POP len
+PRINT "Length: " len
+
+// Concatenation
+CONCAT "Hello" " World"
+POP concat
+PRINT "Concatenated: " concat
+
+// Substring
+SUBSTR s 7 5
+POP sub
+PRINT "Substring (7,5): " sub
+
+// Case conversion
+UPPER "hello"
+POP up
+PRINT "Uppercase: " up
+
+LOWER "HELLO"
+POP low
+PRINT "Lowercase: " low
+
+// Trim whitespace
+TRIM "  hello  "
+POP trimmed
+PRINT "Trimmed: '" trimmed "'"
+
+// Starts/Ends with
+STARTS s "Hello"
+POP startswith
+PRINT "Starts with 'Hello': " startswith
+
+ENDS s "world!"
+POP endswith
+PRINT "Ends with 'world!': " endswith
+
+// Replace
+REPLACE "hello world" "world" "Rust"
+POP replaced
+PRINT "Replaced: " replaced
+
+// Split
+SPLIT "one,two,three" ","
+POP parts
+PRINT "Split: " parts
+
+// Contains
+CONTAINS s "world"
+POP has
+PRINT "Contains 'world': " has

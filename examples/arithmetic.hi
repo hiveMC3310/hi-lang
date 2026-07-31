@@ -1,18 +1,38 @@
 // Demonstration of arithmetic operations
+
+// Addition using stack
 PUSH 5
 PUSH 3
 ADD
 POP sum
 PRINT "5 + 3 = " sum
 
+// Subtraction with arguments
 SUB 10 4
 POP diff
 PRINT "10 - 4 = " diff
 
+// Multiplication
 MUL 6 7
 POP prod
 PRINT "6 * 7 = " prod
 
+// Division
 DIV 20 4
 POP quot
 PRINT "20 / 4 = " quot
+
+// Modulo (remainder)
+MOD 17 5
+POP rem
+PRINT "17 % 5 = " rem
+
+// Power (exponentiation)
+POW 2 8
+POP pwr
+PRINT "2 ^ 8 = " pwr
+
+// Negative exponent yields float
+POW 2 -1
+POP inv
+PRINT "2 ^ -1 = " inv
