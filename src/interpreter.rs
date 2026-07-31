@@ -2,7 +2,7 @@
 
 use crate::commands::{BinOp, Command};
 use crate::error::{InterpError, InterpResult};
-use crate::tokenizer::Tokenizer;
+use crate::tokenizer::{Token, TokenKind, Tokenizer};
 use crate::value::{FileHandle, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -30,6 +30,7 @@ impl CallFrame {
 /// The interpreter state: lines, stack, variables, jump maps, and call stack.
 pub struct Interpreter {
     line_num: usize,
+    argv: Vec<String>,
     pub lines: Vec<String>,
     pub stack: Vec<Value>,
     pub globals: HashMap<String, Value>,
@@ -50,6 +51,7 @@ impl Interpreter {
     pub fn new(lines: Vec<String>) -> Self {
         let mut s = Self {
             lines,
+            argv: Vec::new(),
             line_num: 0,
             stack: Vec::new(),
             globals: HashMap::new(),
@@ -62,6 +64,16 @@ impl Interpreter {
             func_end_map: HashMap::new(),
         };
         s.call_stack.push(CallFrame::new(0));
+
+        s.globals.insert(
+            "ARGS".to_string(),
+            Value::List(Rc::new(RefCell::new(Vec::new()))),
+        );
+        s.globals.insert(
+            "ARGS_DICT".to_string(),
+            Value::Dict(Rc::new(RefCell::new(HashMap::new()))),
+        );
+
         s
     }
 
@@ -102,7 +114,7 @@ impl Interpreter {
             if tokens.is_empty() {
                 continue;
             }
-            let cmd = tokens[0].to_uppercase();
+            let cmd = tokens[0].text.to_uppercase();
 
             match cmd.as_str() {
                 "FUNC" => {
@@ -112,7 +124,13 @@ impl Interpreter {
                             message: "FUNC requires a name".to_string(),
                         });
                     }
-                    let name = tokens[1].clone();
+                    if tokens[1].kind != TokenKind::Identifier {
+                        return Err(InterpError::Syntax {
+                            line: i + 1,
+                            message: "FUNC name must be an identifier".to_string(),
+                        });
+                    }
+                    let name = tokens[1].text.clone();
                     self.func_start_map.remove(&name);
                     self.func_end_map.remove(&name);
                     func_stack.push((name, i));
@@ -206,6 +224,66 @@ impl Interpreter {
         Ok(())
     }
 
+    pub fn set_argv(&mut self, argv: Vec<String>) {
+        self.argv = argv.clone();
+
+        // 1. ARGS
+        let args_list: Vec<Value> = argv.iter().map(|s| Value::String(s.clone())).collect();
+        let args_rc = Rc::new(RefCell::new(args_list));
+        self.globals
+            .insert("ARGS".to_string(), Value::List(args_rc));
+
+        // 2. ARGS_DICT
+        let mut dict = HashMap::new();
+        let mut iter = argv.iter().peekable();
+
+        while let Some(arg) = iter.next() {
+            if arg.starts_with("--") && arg.len() > 2 {
+                let key_str = arg[2..].to_string();
+                if let Some(eq_pos) = key_str.find('=') {
+                    let key = key_str[..eq_pos].to_string();
+                    let value = key_str[eq_pos + 1..].to_string();
+                    dict.insert(Value::String(key), Value::String(value));
+                } else {
+                    if let Some(next_arg) = iter.peek() {
+                        if !next_arg.starts_with('-') {
+                            let val = (*next_arg).clone();
+                            dict.insert(Value::String(key_str), Value::String(val));
+                            iter.next();
+                        } else {
+                            dict.insert(Value::String(key_str), Value::Bool(true));
+                        }
+                    } else {
+                        dict.insert(Value::String(key_str), Value::Bool(true));
+                    }
+                }
+            } else if arg.starts_with('-') && arg.len() > 1 {
+                let key_str = arg[1..].to_string();
+                if let Some(eq_pos) = key_str.find('=') {
+                    let key = key_str[..eq_pos].to_string();
+                    let value = key_str[eq_pos + 1..].to_string();
+                    dict.insert(Value::String(key), Value::String(value));
+                } else {
+                    if let Some(next_arg) = iter.peek() {
+                        if !next_arg.starts_with('-') {
+                            let val = (*next_arg).clone();
+                            dict.insert(Value::String(key_str), Value::String(val));
+                            iter.next();
+                        } else {
+                            dict.insert(Value::String(key_str), Value::Bool(true));
+                        }
+                    } else {
+                        dict.insert(Value::String(key_str), Value::Bool(true));
+                    }
+                }
+            }
+        }
+
+        let dict_rc = Rc::new(RefCell::new(dict));
+        self.globals
+            .insert("ARGS_DICT".to_string(), Value::Dict(dict_rc));
+    }
+
     /// Returns `true` if the current scope is the global scope (i.e., not inside any function).
     fn is_global_scope(&self) -> bool {
         self.call_stack.len() == 1 && self.call_stack[0].return_line == 0
@@ -219,6 +297,27 @@ impl Interpreter {
     /// Returns a mutable reference to the current local variables, if any.
     fn current_locals_mut(&mut self) -> Option<&mut HashMap<String, Value>> {
         self.call_stack.last_mut().map(|frame| &mut frame.locals)
+    }
+
+    /// Получить значение переменной (локальной или глобальной)
+    fn get_variable(&self, name: &str) -> Option<Value> {
+        if let Some(locals) = self.current_locals() {
+            if let Some(v) = locals.get(name) {
+                return Some(v.clone());
+            }
+        }
+        self.globals.get(name).cloned()
+    }
+
+    /// Установить переменную (в текущей области)
+    fn set_variable(&mut self, name: String, value: Value) {
+        if self.is_global_scope() {
+            self.globals.insert(name, value);
+        } else if let Some(locals) = self.current_locals_mut() {
+            locals.insert(name, value);
+        } else {
+            self.globals.insert(name, value);
+        }
     }
 
     /// Completely resets the interpreter state to the initial state.
@@ -235,14 +334,22 @@ impl Interpreter {
         self.loop_back_map.clear();
         self.func_start_map.clear();
         self.func_end_map.clear();
+        self.globals.insert(
+            "ARGS".to_string(),
+            Value::List(Rc::new(RefCell::new(Vec::new()))),
+        );
+        self.globals.insert(
+            "ARGS_DICT".to_string(),
+            Value::Dict(Rc::new(RefCell::new(HashMap::new()))),
+        );
     }
 
     /// Parses a token list into a Command.
-    fn parse_command(&self, tokens: &[String]) -> InterpResult<Command> {
+    fn parse_command(&self, tokens: &[Token]) -> InterpResult<Command> {
         if tokens.is_empty() {
             return Err(InterpError::Internal("Empty token list".to_string()));
         }
-        let cmd_str = tokens[0].to_uppercase();
+        let cmd_str = tokens[0].text.to_uppercase();
         let line = self.line_num + 1;
         match cmd_str.as_str() {
             "HELLO" => Ok(Command::Hello),
@@ -253,7 +360,7 @@ impl Interpreter {
                         message: "PUSH requires a value".to_string(),
                     });
                 }
-                let value = Tokenizer::resolve_value(
+                let value = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
@@ -264,7 +371,13 @@ impl Interpreter {
             }
             "POP" => {
                 let var = if tokens.len() >= 2 {
-                    Some(tokens[1].clone())
+                    if tokens[1].kind != TokenKind::Identifier {
+                        return Err(InterpError::Syntax {
+                            line,
+                            message: "POP variable name must be an identifier".to_string(),
+                        });
+                    }
+                    Some(tokens[1].text.clone())
                 } else {
                     None
                 };
@@ -277,8 +390,14 @@ impl Interpreter {
                         message: "LET requires name and value".to_string(),
                     });
                 }
-                let name = tokens[1].clone();
-                let value = Tokenizer::resolve_value(
+                if tokens[1].kind != TokenKind::Identifier {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "LET variable name must be an identifier".to_string(),
+                    });
+                }
+                let name = tokens[1].text.clone();
+                let value = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -298,7 +417,7 @@ impl Interpreter {
                 }
                 let mut args = Vec::new();
                 for tok in &tokens[1..] {
-                    let v = Tokenizer::resolve_value(
+                    let v = Tokenizer::resolve_token(
                         tok,
                         &self.stack,
                         &self.globals,
@@ -311,8 +430,24 @@ impl Interpreter {
             }
             "INPUT" => {
                 let (prompt, var) = match tokens.len() {
-                    2 => (None, tokens[1].clone()),
-                    3 => (Some(tokens[1].clone()), tokens[2].clone()),
+                    2 => {
+                        if tokens[1].kind != TokenKind::Identifier {
+                            return Err(InterpError::Syntax {
+                                line,
+                                message: "INPUT variable name must be an identifier".to_string(),
+                            });
+                        }
+                        (None, tokens[1].text.clone())
+                    }
+                    3 => {
+                        if tokens[2].kind != TokenKind::Identifier {
+                            return Err(InterpError::Syntax {
+                                line,
+                                message: "INPUT variable name must be an identifier".to_string(),
+                            });
+                        }
+                        (Some(tokens[1].text.clone()), tokens[2].text.clone())
+                    }
                     _ => {
                         return Err(InterpError::Syntax {
                             line,
@@ -359,7 +494,7 @@ impl Interpreter {
                     }
                     Ok(Command::Not(None))
                 } else if tokens.len() >= 2 {
-                    let a = Tokenizer::resolve_value(
+                    let a = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
@@ -376,17 +511,17 @@ impl Interpreter {
             }
             "IF" => {
                 if tokens.len() == 4 {
-                    let op_str = tokens[1].to_uppercase();
+                    let op_str = tokens[1].text.to_uppercase();
                     if ["EQ", "NE", "GT", "GE", "LT", "LE", "AND", "OR"].contains(&op_str.as_str())
                     {
-                        let left = Tokenizer::resolve_value(
+                        let left = Tokenizer::resolve_token(
                             &tokens[2],
                             &self.stack,
                             &self.globals,
                             self.current_locals(),
                             line,
                         )?;
-                        let right = Tokenizer::resolve_value(
+                        let right = Tokenizer::resolve_token(
                             &tokens[3],
                             &self.stack,
                             &self.globals,
@@ -417,7 +552,7 @@ impl Interpreter {
                     }
                 }
                 if tokens.len() == 2 {
-                    let cond = Tokenizer::resolve_value(
+                    let cond = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
@@ -436,17 +571,17 @@ impl Interpreter {
             "ENDIF" => Ok(Command::Endif),
             "WHILE" => {
                 if tokens.len() == 4 {
-                    let op_str = tokens[1].to_uppercase();
+                    let op_str = tokens[1].text.to_uppercase();
                     if ["EQ", "NE", "GT", "GE", "LT", "LE", "AND", "OR"].contains(&op_str.as_str())
                     {
-                        let left = Tokenizer::resolve_value(
+                        let left = Tokenizer::resolve_token(
                             &tokens[2],
                             &self.stack,
                             &self.globals,
                             self.current_locals(),
                             line,
                         )?;
-                        let right = Tokenizer::resolve_value(
+                        let right = Tokenizer::resolve_token(
                             &tokens[3],
                             &self.stack,
                             &self.globals,
@@ -477,7 +612,7 @@ impl Interpreter {
                     }
                 }
                 if tokens.len() == 2 {
-                    let cond = Tokenizer::resolve_value(
+                    let cond = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
@@ -500,7 +635,13 @@ impl Interpreter {
                         message: "FUNC requires a name".to_string(),
                     });
                 }
-                Ok(Command::Func(tokens[1].clone()))
+                if tokens[1].kind != TokenKind::Identifier {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "FUNC name must be an identifier".to_string(),
+                    });
+                }
+                Ok(Command::Func(tokens[1].text.clone()))
             }
             "RET" => Ok(Command::Ret),
             "ENDF" => Ok(Command::Endf),
@@ -511,11 +652,17 @@ impl Interpreter {
                         message: "CALL requires a function name".to_string(),
                     });
                 }
-                Ok(Command::Call(tokens[1].clone()))
+                if tokens[1].kind != TokenKind::Identifier {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "CALL function name must be an identifier".to_string(),
+                    });
+                }
+                Ok(Command::Call(tokens[1].text.clone()))
             }
             "LEN" => {
                 if tokens.len() == 2 {
-                    let val = Tokenizer::resolve_value(
+                    let val = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
@@ -540,14 +687,14 @@ impl Interpreter {
             }
             "CONCAT" => {
                 if tokens.len() == 3 {
-                    let a = Tokenizer::resolve_value(
+                    let a = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
                         line,
                     )?;
-                    let b = Tokenizer::resolve_value(
+                    let b = Tokenizer::resolve_token(
                         &tokens[2],
                         &self.stack,
                         &self.globals,
@@ -572,21 +719,21 @@ impl Interpreter {
             }
             "SUBSTR" => {
                 if tokens.len() == 4 {
-                    let s = Tokenizer::resolve_value(
+                    let s = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
                         line,
                     )?;
-                    let start = Tokenizer::resolve_value(
+                    let start = Tokenizer::resolve_token(
                         &tokens[2],
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
                         line,
                     )?;
-                    let len = Tokenizer::resolve_value(
+                    let len = Tokenizer::resolve_token(
                         &tokens[3],
                         &self.stack,
                         &self.globals,
@@ -611,7 +758,7 @@ impl Interpreter {
             }
             "UPPER" => {
                 if tokens.len() == 2 {
-                    let val = Tokenizer::resolve_value(
+                    let val = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
@@ -636,7 +783,7 @@ impl Interpreter {
             }
             "LOWER" => {
                 if tokens.len() == 2 {
-                    let val = Tokenizer::resolve_value(
+                    let val = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
@@ -661,7 +808,7 @@ impl Interpreter {
             }
             "TRIM" => {
                 if tokens.len() == 2 {
-                    let val = Tokenizer::resolve_value(
+                    let val = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
@@ -687,7 +834,7 @@ impl Interpreter {
             "LIST" => {
                 let mut elements = Vec::new();
                 for token in &tokens[1..] {
-                    let val = Tokenizer::resolve_value(
+                    let val = Tokenizer::resolve_token(
                         token,
                         &self.stack,
                         &self.globals,
@@ -705,14 +852,14 @@ impl Interpreter {
                         message: "INDEX requires two arguments: list and index".to_string(),
                     });
                 }
-                let list_val = Tokenizer::resolve_value(
+                let list_val = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let idx_val = Tokenizer::resolve_value(
+                let idx_val = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -728,14 +875,14 @@ impl Interpreter {
                         message: "APPEND requires two arguments: list and element".to_string(),
                     });
                 }
-                let list_val = Tokenizer::resolve_value(
+                let list_val = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let el_val = Tokenizer::resolve_value(
+                let el_val = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -751,14 +898,14 @@ impl Interpreter {
                         message: "CONTAINS requires two arguments: base and element".to_string(),
                     });
                 }
-                let base = Tokenizer::resolve_value(
+                let base = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let el = Tokenizer::resolve_value(
+                let el = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -774,14 +921,14 @@ impl Interpreter {
                         message: "STARTS requires two arguments: base and prefix".to_string(),
                     });
                 }
-                let base = Tokenizer::resolve_value(
+                let base = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let prefix = Tokenizer::resolve_value(
+                let prefix = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -797,14 +944,14 @@ impl Interpreter {
                         message: "ENDS requires two arguments: base and suffix".to_string(),
                     });
                 }
-                let base = Tokenizer::resolve_value(
+                let base = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let suffix = Tokenizer::resolve_value(
+                let suffix = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -820,21 +967,21 @@ impl Interpreter {
                         message: "REPLACE requires three arguments: base, old, new".to_string(),
                     });
                 }
-                let base = Tokenizer::resolve_value(
+                let base = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let old = Tokenizer::resolve_value(
+                let old = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let new = Tokenizer::resolve_value(
+                let new = Tokenizer::resolve_token(
                     &tokens[3],
                     &self.stack,
                     &self.globals,
@@ -850,14 +997,14 @@ impl Interpreter {
                         message: "SPLIT requires two arguments: base and delimiter".to_string(),
                     });
                 }
-                let base = Tokenizer::resolve_value(
+                let base = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let delim = Tokenizer::resolve_value(
+                let delim = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -873,21 +1020,21 @@ impl Interpreter {
                         message: "SLICE requires three arguments: list, start, len".to_string(),
                     });
                 }
-                let list = Tokenizer::resolve_value(
+                let list = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let start = Tokenizer::resolve_value(
+                let start = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let len = Tokenizer::resolve_value(
+                let len = Tokenizer::resolve_token(
                     &tokens[3],
                     &self.stack,
                     &self.globals,
@@ -903,7 +1050,7 @@ impl Interpreter {
                         message: "REVERSE requires one argument (string or list)".to_string(),
                     });
                 }
-                let base = Tokenizer::resolve_value(
+                let base = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
@@ -920,21 +1067,21 @@ impl Interpreter {
                             .to_string(),
                     });
                 }
-                let list = Tokenizer::resolve_value(
+                let list = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let idx = Tokenizer::resolve_value(
+                let idx = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let el = Tokenizer::resolve_value(
+                let el = Tokenizer::resolve_token(
                     &tokens[3],
                     &self.stack,
                     &self.globals,
@@ -947,24 +1094,24 @@ impl Interpreter {
                 if tokens.len() < 3 {
                     return Err(InterpError::Syntax {
                         line,
-                        message: "REMOVE requires two arguments: list and index".to_string(),
+                        message: "REMOVE requires two arguments: var and index/key".to_string(),
                     });
                 }
-                let list = Tokenizer::resolve_value(
-                    &tokens[1],
-                    &self.stack,
-                    &self.globals,
-                    self.current_locals(),
-                    line,
-                )?;
-                let idx = Tokenizer::resolve_value(
+                if tokens[1].kind != TokenKind::Identifier {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "REMOVE variable name must be an identifier".to_string(),
+                    });
+                }
+                let var = tokens[1].text.clone();
+                let idx = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                Ok(Command::Remove(list, idx))
+                Ok(Command::Remove(var, idx))
             }
             "INDEXOF" => {
                 if tokens.len() < 3 {
@@ -973,14 +1120,14 @@ impl Interpreter {
                         message: "INDEXOF requires two arguments: base and element".to_string(),
                     });
                 }
-                let base = Tokenizer::resolve_value(
+                let base = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let el = Tokenizer::resolve_value(
+                let el = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -996,24 +1143,36 @@ impl Interpreter {
                         message: "OPEN requires path and mode".to_string(),
                     });
                 }
-                let path = tokens[1].clone();
-                let mode = tokens[2].clone();
+                let path = Tokenizer::resolve_token(
+                    &tokens[1],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                    line,
+                )?;
+                let mode = Tokenizer::resolve_token(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                    line,
+                )?;
                 Ok(Command::Open(path, mode))
             }
             "CLOSE" => {
-                let var = if tokens.len() >= 2 {
-                    let file = Tokenizer::resolve_value(
+                let file = if tokens.len() >= 2 {
+                    let f = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
                         line,
                     )?;
-                    Some(file)
+                    Some(f)
                 } else {
                     None
                 };
-                Ok(Command::Close(var))
+                Ok(Command::Close(file))
             }
             "READ" => {
                 if tokens.len() < 2 {
@@ -1022,7 +1181,7 @@ impl Interpreter {
                         message: "READ requires file and optionally variable name".to_string(),
                     });
                 }
-                let file = Tokenizer::resolve_value(
+                let file = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
@@ -1030,7 +1189,13 @@ impl Interpreter {
                     line,
                 )?;
                 let var = if tokens.len() >= 3 {
-                    Some(tokens[2].clone())
+                    if tokens[2].kind != TokenKind::Identifier {
+                        return Err(InterpError::Syntax {
+                            line,
+                            message: "READ variable name must be an identifier".to_string(),
+                        });
+                    }
+                    Some(tokens[2].text.clone())
                 } else {
                     None
                 };
@@ -1043,14 +1208,14 @@ impl Interpreter {
                         message: "WRITE requires file and value".to_string(),
                     });
                 }
-                let file = Tokenizer::resolve_value(
+                let file = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let value = Tokenizer::resolve_value(
+                let value = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -1066,7 +1231,7 @@ impl Interpreter {
                         message: "READLN requires file and optionally variable name".to_string(),
                     });
                 }
-                let file = Tokenizer::resolve_value(
+                let file = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
@@ -1074,7 +1239,13 @@ impl Interpreter {
                     line,
                 )?;
                 let var = if tokens.len() >= 3 {
-                    Some(tokens[2].clone())
+                    if tokens[2].kind != TokenKind::Identifier {
+                        return Err(InterpError::Syntax {
+                            line,
+                            message: "READLN variable name must be an identifier".to_string(),
+                        });
+                    }
+                    Some(tokens[2].text.clone())
                 } else {
                     None
                 };
@@ -1087,14 +1258,14 @@ impl Interpreter {
                         message: "WRITELN requires file and value".to_string(),
                     });
                 }
-                let file = Tokenizer::resolve_value(
+                let file = Tokenizer::resolve_token(
                     &tokens[1],
                     &self.stack,
                     &self.globals,
                     self.current_locals(),
                     line,
                 )?;
-                let value = Tokenizer::resolve_value(
+                let value = Tokenizer::resolve_token(
                     &tokens[2],
                     &self.stack,
                     &self.globals,
@@ -1104,19 +1275,143 @@ impl Interpreter {
                 Ok(Command::Writeln(file, value))
             }
             "EOF" => {
-                let var = if tokens.len() >= 2 {
-                    let file = Tokenizer::resolve_value(
+                let file = if tokens.len() >= 2 {
+                    let f = Tokenizer::resolve_token(
                         &tokens[1],
                         &self.stack,
                         &self.globals,
                         self.current_locals(),
                         line,
                     )?;
-                    Some(file)
+                    Some(f)
                 } else {
                     None
                 };
-                Ok(Command::Eof(var))
+                Ok(Command::Eof(file))
+            }
+            "DICT" => {
+                if tokens.len() == 1 {
+                    Ok(Command::Dict(None))
+                } else if tokens.len() == 2 {
+                    if tokens[1].kind != TokenKind::Identifier {
+                        return Err(InterpError::Syntax {
+                            line,
+                            message: "DICT variable name must be an identifier".to_string(),
+                        });
+                    }
+                    Ok(Command::Dict(Some(tokens[1].text.clone())))
+                } else {
+                    Err(InterpError::Syntax {
+                        line,
+                        message: "DICT takes 0 or 1 argument".to_string(),
+                    })
+                }
+            }
+            "PUT" => {
+                if tokens.len() < 4 {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "PUT requires dict_var, key, value".to_string(),
+                    });
+                }
+                if tokens[1].kind != TokenKind::Identifier {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "PUT dictionary variable must be an identifier".to_string(),
+                    });
+                }
+                let dict_var = tokens[1].text.clone();
+                let key = Tokenizer::resolve_token(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                    line,
+                )?;
+                let value = Tokenizer::resolve_token(
+                    &tokens[3],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                    line,
+                )?;
+                Ok(Command::Put(dict_var, key, value))
+            }
+            "GET" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "GET requires dict_var and key".to_string(),
+                    });
+                }
+                if tokens[1].kind != TokenKind::Identifier {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "GET dictionary variable must be an identifier".to_string(),
+                    });
+                }
+                let dict_var = tokens[1].text.clone();
+                let key = Tokenizer::resolve_token(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                    line,
+                )?;
+                Ok(Command::Get(dict_var, key))
+            }
+            "HAS" => {
+                if tokens.len() < 3 {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "HAS requires dict_var and key".to_string(),
+                    });
+                }
+                if tokens[1].kind != TokenKind::Identifier {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "HAS dictionary variable must be an identifier".to_string(),
+                    });
+                }
+                let dict_var = tokens[1].text.clone();
+                let key = Tokenizer::resolve_token(
+                    &tokens[2],
+                    &self.stack,
+                    &self.globals,
+                    self.current_locals(),
+                    line,
+                )?;
+                Ok(Command::Has(dict_var, key))
+            }
+            "KEYS" => {
+                if tokens.len() != 2 {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "KEYS requires dict_var".to_string(),
+                    });
+                }
+                if tokens[1].kind != TokenKind::Identifier {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "KEYS dictionary variable must be an identifier".to_string(),
+                    });
+                }
+                Ok(Command::Keys(tokens[1].text.clone()))
+            }
+            "VALUES" => {
+                if tokens.len() != 2 {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "VALUES requires dict_var".to_string(),
+                    });
+                }
+                if tokens[1].kind != TokenKind::Identifier {
+                    return Err(InterpError::Syntax {
+                        line,
+                        message: "VALUES dictionary variable must be an identifier".to_string(),
+                    });
+                }
+                Ok(Command::Values(tokens[1].text.clone()))
             }
             _ => Err(InterpError::Syntax {
                 line,
@@ -1126,7 +1421,7 @@ impl Interpreter {
     }
 
     /// Resolves two arguments for binary operations (ADD, SUB, etc.).
-    fn parse_binary_args(&self, tokens: &[String]) -> InterpResult<(Option<Value>, Option<Value>)> {
+    fn parse_binary_args(&self, tokens: &[Token]) -> InterpResult<(Option<Value>, Option<Value>)> {
         if tokens.len() == 1 {
             if self.stack.len() < 2 {
                 return Err(InterpError::Semantic {
@@ -1136,14 +1431,14 @@ impl Interpreter {
             }
             Ok((None, None))
         } else if tokens.len() >= 3 {
-            let a = Tokenizer::resolve_value(
+            let a = Tokenizer::resolve_token(
                 &tokens[1],
                 &self.stack,
                 &self.globals,
                 self.current_locals(),
                 self.line_num + 1,
             )?;
-            let b = Tokenizer::resolve_value(
+            let b = Tokenizer::resolve_token(
                 &tokens[2],
                 &self.stack,
                 &self.globals,
@@ -1436,25 +1731,13 @@ impl Interpreter {
                 })?;
 
                 if let Some(var) = var_opt {
-                    if self.is_global_scope() {
-                        self.globals.insert(var.clone(), value);
-                    } else if let Some(locals) = self.current_locals_mut() {
-                        locals.insert(var.clone(), value);
-                    } else {
-                        self.globals.insert(var.clone(), value);
-                    }
-                }
+                    self.set_variable(var.clone(), value);
+                };
                 self.line_num += 1;
             }
 
             Command::Let(name, value) => {
-                if self.is_global_scope() {
-                    self.globals.insert(name.clone(), value.clone());
-                } else if let Some(locals) = self.current_locals_mut() {
-                    locals.insert(name.clone(), value.clone());
-                } else {
-                    self.globals.insert(name.clone(), value.clone());
-                }
+                self.set_variable(name.clone(), value.clone());
                 self.line_num += 1;
             }
 
@@ -1509,13 +1792,7 @@ impl Interpreter {
                 let input = input.trim_end_matches(&['\n', '\r'][..]);
                 let value = crate::utils::parse(input);
 
-                if self.is_global_scope() {
-                    self.globals.insert(var.clone(), value);
-                } else if let Some(locals) = self.current_locals_mut() {
-                    locals.insert(var.clone(), value);
-                } else {
-                    self.globals.insert(var.clone(), value);
-                }
+                self.set_variable(var.clone(), value);
                 self.line_num += 1;
             }
 
@@ -1691,6 +1968,7 @@ impl Interpreter {
                 let result = match &val {
                     Value::String(s) => Value::Int(s.len() as i64),
                     Value::List(l) => Value::Int(l.borrow().len() as i64),
+                    Value::Dict(d) => Value::Int(d.borrow().len() as i64),
                     _ => {
                         return Err(InterpError::Runtime {
                             line,
@@ -2139,35 +2417,64 @@ impl Interpreter {
                 self.line_num += 1;
             }
 
-            Command::Remove(list_val, idx_val) => {
-                let list_rc = match list_val {
-                    Value::List(rc) => rc,
-                    _ => {
-                        return Err(InterpError::Runtime {
-                            line,
-                            message: format!("REMOVE requires a list, got {:?}", list_val),
-                        });
-                    }
-                };
-                let idx = match idx_val {
-                    Value::Int(i) => *i,
-                    _ => {
-                        return Err(InterpError::Runtime {
-                            line,
-                            message: format!("REMOVE index must be integer, got {:?}", idx_val),
-                        });
-                    }
-                };
+            Command::Remove(var, index) => {
+                let val = self.get_variable(var).ok_or_else(|| InterpError::Runtime {
+                    line,
+                    message: format!("Variable '{}' not found", var),
+                })?;
 
-                let new_rc = if Rc::strong_count(&list_rc) == 1 {
-                    list_rc.borrow_mut().remove(idx as usize);
-                    list_rc.clone()
-                } else {
-                    let mut new_vec = list_rc.borrow().clone();
-                    new_vec.remove(idx as usize);
-                    Rc::new(RefCell::new(new_vec))
-                };
-                self.stack.push(Value::List(new_rc));
+                match val {
+                    Value::Dict(dict_rc) => {
+                        if !index.is_hashable() {
+                            return Err(InterpError::Runtime {
+                                line,
+                                message: format!("Key {:?} is not hashable", index),
+                            });
+                        }
+                        let mut map = dict_rc.borrow_mut();
+                        if map.remove(&index).is_none() {
+                            return Err(InterpError::Runtime {
+                                line,
+                                message: format!("Key {:?} not found in dictionary", index),
+                            });
+                        }
+                    }
+                    Value::List(list_rc) => {
+                        let idx = match index {
+                            Value::Int(i) => *i,
+                            _ => {
+                                return Err(InterpError::Runtime {
+                                    line,
+                                    message: format!("List index must be integer, got {:?}", index),
+                                });
+                            }
+                        };
+                        if idx < 0 || idx >= list_rc.borrow().len() as i64 {
+                            return Err(InterpError::Runtime {
+                                line,
+                                message: format!("Index {} out of bounds", idx),
+                            });
+                        }
+                        let new_rc = if Rc::strong_count(&list_rc) == 1 {
+                            list_rc.borrow_mut().remove(idx as usize);
+                            list_rc.clone()
+                        } else {
+                            let mut new_vec = list_rc.borrow().clone();
+                            new_vec.remove(idx as usize);
+                            Rc::new(RefCell::new(new_vec))
+                        };
+                        self.stack.push(Value::List(new_rc));
+                    }
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!(
+                                "Variable '{}' is neither a dictionary nor a list",
+                                var
+                            ),
+                        });
+                    }
+                }
                 self.line_num += 1;
             }
 
@@ -2207,43 +2514,68 @@ impl Interpreter {
                 self.line_num += 1;
             }
 
-            Command::Open(path, mode) => {
-                let handle = match mode.as_str() {
-                    "r" => {
-                        let file = std::fs::File::open(path).map_err(|e| InterpError::Runtime {
+            Command::Open(path_val, mode_val) => {
+                let path_str = match path_val {
+                    Value::String(s) => s.clone(),
+                    _ => {
+                        return Err(InterpError::Runtime {
                             line,
-                            message: format!("Cannot open file '{}' for reading: {}", path, e),
-                        })?;
-                        FileHandle::new_reader(path.clone(), file)
+                            message: "OPEN path must be a string".to_string(),
+                        });
+                    }
+                };
+                let mode_str = match mode_val {
+                    Value::String(s) => s.clone(),
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: "OPEN mode must be a string".to_string(),
+                        });
+                    }
+                };
+                let handle = match mode_str.as_str() {
+                    "r" => {
+                        let file =
+                            std::fs::File::open(&path_str).map_err(|e| InterpError::Runtime {
+                                line,
+                                message: format!(
+                                    "Cannot open file '{}' for reading: {}",
+                                    path_str, e
+                                ),
+                            })?;
+                        FileHandle::new_reader(path_str.clone(), file)
                     }
                     "w" => {
                         let file =
-                            std::fs::File::create(path).map_err(|e| InterpError::Runtime {
+                            std::fs::File::create(&path_str).map_err(|e| InterpError::Runtime {
                                 line,
                                 message: format!(
                                     "Cannot create file '{}' for writing: {}",
-                                    path, e
+                                    path_str, e
                                 ),
                             })?;
-                        FileHandle::new_writer(path.clone(), file)
+                        FileHandle::new_writer(path_str.clone(), file)
                     }
                     "a" => {
                         let file = std::fs::OpenOptions::new()
                             .append(true)
-                            .open(path)
+                            .open(&path_str)
                             .map_err(|e| InterpError::Runtime {
                                 line,
                                 message: format!(
                                     "Cannot open file '{}' for appending: {}",
-                                    path, e
+                                    path_str, e
                                 ),
                             })?;
-                        FileHandle::new_writer(path.clone(), file)
+                        FileHandle::new_writer(path_str.clone(), file)
                     }
                     _ => {
-                        return Err(InterpError::Syntax {
+                        return Err(InterpError::Runtime {
                             line,
-                            message: format!("Invalid file mode '{}' (use 'r', 'w', 'a')", mode),
+                            message: format!(
+                                "Invalid file mode '{}' (use 'r', 'w', 'a')",
+                                mode_str
+                            ),
                         });
                     }
                 };
@@ -2304,13 +2636,7 @@ impl Interpreter {
 
                 let value = Value::String(content);
                 if let Some(var) = var_opt {
-                    if self.is_global_scope() {
-                        self.globals.insert(var.clone(), value);
-                    } else if let Some(locals) = self.current_locals_mut() {
-                        locals.insert(var.clone(), value);
-                    } else {
-                        self.globals.insert(var.clone(), value);
-                    }
+                    self.set_variable(var.clone(), value);
                 } else {
                     self.stack.push(value);
                 }
@@ -2360,13 +2686,7 @@ impl Interpreter {
 
                 let value = Value::String(line);
                 if let Some(var) = var_opt {
-                    if self.is_global_scope() {
-                        self.globals.insert(var.clone(), value);
-                    } else if let Some(locals) = self.current_locals_mut() {
-                        locals.insert(var.clone(), value);
-                    } else {
-                        self.globals.insert(var.clone(), value);
-                    }
+                    self.set_variable(var.clone(), value);
                 } else {
                     self.stack.push(value);
                 }
@@ -2417,6 +2737,160 @@ impl Interpreter {
                     handle.eof
                 };
                 self.stack.push(Value::Bool(is_eof));
+                self.line_num += 1;
+            }
+
+            Command::Dict(var_opt) => {
+                let map = HashMap::new();
+                let dict = Rc::new(RefCell::new(map));
+                let val = Value::Dict(dict);
+                if let Some(var) = var_opt {
+                    self.set_variable(var.clone(), val);
+                } else {
+                    self.stack.push(val);
+                }
+                self.line_num += 1;
+            }
+
+            Command::Put(dict_var, key, value) => {
+                let dict_val = if let Some(v) = self.get_variable(dict_var) {
+                    v
+                } else {
+                    let empty = Value::Dict(Rc::new(RefCell::new(HashMap::new())));
+                    self.set_variable(dict_var.clone(), empty.clone());
+                    empty
+                };
+
+                let dict_rc = match dict_val {
+                    Value::Dict(rc) => rc,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("Variable '{}' is not a dictionary", dict_var),
+                        });
+                    }
+                };
+
+                if !key.is_hashable() {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: format!("Key {:?} is not hashable", key),
+                    });
+                }
+
+                dict_rc.borrow_mut().insert(key.clone(), value.clone());
+                self.line_num += 1;
+            }
+
+            Command::Get(dict_var, key) => {
+                let dict_val = self
+                    .get_variable(dict_var)
+                    .ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: format!("Variable '{}' not found", dict_var),
+                    })?;
+
+                let dict_rc = match dict_val {
+                    Value::Dict(rc) => rc,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("Variable '{}' is not a dictionary", dict_var),
+                        });
+                    }
+                };
+
+                if !key.is_hashable() {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: format!("Key {:?} is not hashable", key),
+                    });
+                }
+
+                let map = dict_rc.borrow();
+                let val = map.get(key).ok_or_else(|| InterpError::Runtime {
+                    line,
+                    message: format!("Key {:?} not found in dictionary", key),
+                })?;
+                self.stack.push(val.clone());
+                self.line_num += 1;
+            }
+
+            Command::Has(dict_var, key) => {
+                let dict_val = self
+                    .get_variable(dict_var)
+                    .ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: format!("Variable '{}' not found", dict_var),
+                    })?;
+
+                let dict_rc = match dict_val {
+                    Value::Dict(rc) => rc,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("Variable '{}' is not a dictionary", dict_var),
+                        });
+                    }
+                };
+
+                if !key.is_hashable() {
+                    return Err(InterpError::Runtime {
+                        line,
+                        message: format!("Key {:?} is not hashable", key),
+                    });
+                }
+
+                let present = dict_rc.borrow().contains_key(key);
+                self.stack.push(Value::Bool(present));
+                self.line_num += 1;
+            }
+
+            Command::Keys(dict_var) => {
+                let dict_val = self
+                    .get_variable(dict_var)
+                    .ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: format!("Variable '{}' not found", dict_var),
+                    })?;
+
+                let dict_rc = match dict_val {
+                    Value::Dict(rc) => rc,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("Variable '{}' is not a dictionary", dict_var),
+                        });
+                    }
+                };
+
+                let keys: Vec<Value> = dict_rc.borrow().keys().cloned().collect();
+                let list = Rc::new(RefCell::new(keys));
+                self.stack.push(Value::List(list));
+                self.line_num += 1;
+            }
+
+            Command::Values(dict_var) => {
+                let dict_val = self
+                    .get_variable(dict_var)
+                    .ok_or_else(|| InterpError::Runtime {
+                        line,
+                        message: format!("Variable '{}' not found", dict_var),
+                    })?;
+
+                let dict_rc = match dict_val {
+                    Value::Dict(rc) => rc,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            line,
+                            message: format!("Variable '{}' is not a dictionary", dict_var),
+                        });
+                    }
+                };
+
+                let values: Vec<Value> = dict_rc.borrow().values().cloned().collect();
+                let list = Rc::new(RefCell::new(values));
+                self.stack.push(Value::List(list));
                 self.line_num += 1;
             }
         }

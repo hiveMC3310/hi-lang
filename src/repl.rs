@@ -154,7 +154,7 @@ fn block_balance(lines: &[String]) -> i32 {
             if tokens.is_empty() {
                 continue;
             }
-            let cmd = tokens[0].to_uppercase();
+            let cmd = tokens[0].text.to_uppercase();
             match cmd.as_str() {
                 "IF" | "WHILE" | "FUNC" => balance += 1,
                 "ENDIF" | "DO" | "ENDF" => balance -= 1,

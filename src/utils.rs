@@ -40,5 +40,6 @@ pub fn type_name(v: &Value) -> &'static str {
         Value::Bool(_) => "boolean",
         Value::List(_) => "list",
         Value::File(_) => "file",
+        Value::Dict(_) => "dict",
     }
 }

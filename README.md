@@ -41,8 +41,7 @@ The interpreter reads the file line by line and executes it.
 
 ## 💡 Examples
 
-Here are a few quick examples. For a complete set of ready‑to‑run programs, check out the [`examples/`](examples/)
-folder.
+Here are a few quick examples.
 
 ### Hello World
 
@@ -115,6 +114,11 @@ APPEND mylist 42
 POP newlist
 PRINT "New list: " newlist
 ```
+
+### And more..
+
+For a complete set of ready‑to‑run programs, check out the [`examples/`](examples/)
+folder.
 
 ---
 

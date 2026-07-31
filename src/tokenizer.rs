@@ -5,13 +5,34 @@ use crate::utils;
 use crate::value::Value;
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenKind {
+    Identifier,
+    StringLiteral,
+    Number,
+    Bool,
+    Unknown,
+}
+
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub text: String,
+    pub kind: TokenKind,
+}
+
+impl Token {
+    pub fn new(text: String, kind: TokenKind) -> Self {
+        Self { text, kind }
+    }
+}
+
 pub struct Tokenizer {}
 
 impl Tokenizer {
     /// Splits a line into tokens, handling strings and comments.
     /// Returns an error on unclosed string literals or invalid escapes.
-    pub fn tokenize(line: &str, line_num: usize) -> InterpResult<Vec<String>> {
-        let mut tokens: Vec<String> = Vec::new();
+    pub fn tokenize(line: &str, line_num: usize) -> InterpResult<Vec<Token>> {
+        let mut tokens: Vec<Token> = Vec::new();
         let mut chars = line.chars().peekable();
 
         while let Some(ch) = chars.next() {
@@ -53,7 +74,7 @@ impl Tokenizer {
                 }
 
                 let unescaped = Self::unescape_string(&content, line_num)?;
-                tokens.push(unescaped);
+                tokens.push(Token::new(unescaped, TokenKind::StringLiteral));
             } else {
                 let mut token = String::new();
                 token.push(ch);
@@ -63,36 +84,73 @@ impl Tokenizer {
                     }
                     token.push(chars.next().unwrap());
                 }
-                tokens.push(token);
+
+                let kind = if token == "True" || token == "False" {
+                    TokenKind::Bool
+                } else if token.parse::<i64>().is_ok() || token.parse::<f64>().is_ok() {
+                    TokenKind::Number
+                } else {
+                    TokenKind::Identifier
+                };
+                tokens.push(Token::new(token, kind));
             }
         }
         Ok(tokens)
     }
 
     /// Resolves a token to a Value: SP (stack top), variable (local/global), or literal.
-    pub fn resolve_value(
-        token: &str,
+    pub fn resolve_token(
+        token: &Token,
         stack: &[Value],
         globals: &HashMap<String, Value>,
         locals: Option<&HashMap<String, Value>>,
         line: usize,
     ) -> InterpResult<Value> {
-        if token == "SP" {
-            return stack.last().cloned().ok_or(InterpError::Runtime {
-                line,
-                message: "SP used with empty stack".to_string(),
-            });
-        }
-        if let Some(locals) = locals
-            && let Some(v) = locals.get(token)
-        {
-            return Ok(v.clone());
-        }
-        if let Some(v) = globals.get(token) {
-            return Ok(v.clone());
-        }
+        match token.kind {
+            TokenKind::StringLiteral => Ok(Value::String(token.text.clone())),
+            TokenKind::Bool => {
+                if token.text == "True" {
+                    Ok(Value::Bool(true))
+                } else {
+                    Ok(Value::Bool(false))
+                }
+            }
+            TokenKind::Number => {
+                if let Ok(i) = token.text.parse::<i64>() {
+                    Ok(Value::Int(i))
+                } else if let Ok(f) = token.text.parse::<f64>() {
+                    Ok(Value::Float(f))
+                } else {
+                    Err(InterpError::Runtime {
+                        line,
+                        message: format!("Invalid number '{}'", token.text),
+                    })
+                }
+            }
+            TokenKind::Identifier => {
+                if token.text == "SP" {
+                    return stack.last().cloned().ok_or(InterpError::Runtime {
+                        line,
+                        message: "SP used with empty stack".to_string(),
+                    });
+                }
 
-        Ok(utils::parse(token))
+                if let Some(locals) = locals {
+                    if let Some(v) = locals.get(&token.text) {
+                        return Ok(v.clone());
+                    }
+                }
+                if let Some(v) = globals.get(&token.text) {
+                    return Ok(v.clone());
+                }
+
+                Err(InterpError::Runtime {
+                    line,
+                    message: format!("Undefined variable '{}'", token.text),
+                })
+            }
+            TokenKind::Unknown => Ok(utils::parse(&token.text)),
+        }
     }
 
     /// Unescapes a string literal content (without surrounding quotes).
@@ -195,52 +253,63 @@ mod tests {
     use super::*;
     use crate::error::InterpError;
 
+    fn token_texts(tokens: &[Token]) -> Vec<&str> {
+        tokens.iter().map(|t| t.text.as_str()).collect()
+    }
+
     // ---------- tokenize ----------
     #[test]
     fn tokenize_simple_tokens() {
         let line = "PUSH 42 HELLO";
         let tokens = Tokenizer::tokenize(line, 1).unwrap();
-        assert_eq!(tokens, vec!["PUSH", "42", "HELLO"]);
+        assert_eq!(token_texts(&tokens), vec!["PUSH", "42", "HELLO"]);
+
+        assert_eq!(tokens[0].kind, TokenKind::Identifier);
+        assert_eq!(tokens[1].kind, TokenKind::Number);
+        assert_eq!(tokens[2].kind, TokenKind::Identifier);
     }
 
     #[test]
     fn tokenize_comment() {
         let line = "PUSH 42 // комментарий";
         let tokens = Tokenizer::tokenize(line, 1).unwrap();
-        assert_eq!(tokens, vec!["PUSH", "42"]);
+        assert_eq!(token_texts(&tokens), vec!["PUSH", "42"]);
     }
 
     #[test]
     fn tokenize_string_literal() {
         let line = r#"PRINT "Hello, world!""#;
         let tokens = Tokenizer::tokenize(line, 1).unwrap();
-        assert_eq!(tokens, vec!["PRINT", "Hello, world!"]);
+        assert_eq!(token_texts(&tokens), vec!["PRINT", "Hello, world!"]);
+        assert_eq!(tokens[1].kind, TokenKind::StringLiteral);
     }
 
     #[test]
     fn tokenize_string_with_escaped_quote() {
         let line = "PRINT \"She said \\\"Hi\\\"\"";
         let tokens = Tokenizer::tokenize(line, 1).unwrap();
-        assert_eq!(tokens[0], "PRINT");
-        assert_eq!(tokens[1], "She said \"Hi\"");
+        assert_eq!(tokens[0].text, "PRINT");
+        assert_eq!(tokens[1].text, "She said \"Hi\"");
+        assert_eq!(tokens[1].kind, TokenKind::StringLiteral);
     }
 
     #[test]
     fn tokenize_string_with_escapes() {
         let line = "PRINT \"Line1\\nLine2\\tTab\"";
         let tokens = Tokenizer::tokenize(line, 1).unwrap();
-        assert_eq!(tokens[0], "PRINT");
-        assert_eq!(tokens[1].len(), "Line1\nLine2\tTab".len());
-        assert!(tokens[1].contains('\n'));
-        assert!(tokens[1].contains('\t'));
+        assert_eq!(tokens[0].text, "PRINT");
+        assert_eq!(tokens[1].text, "Line1\nLine2\tTab");
+        assert!(tokens[1].text.contains('\n'));
+        assert!(tokens[1].text.contains('\t'));
     }
 
     #[test]
     fn tokenize_unicode_escape() {
         let line = "PRINT \"\\u{1F600}\"";
         let tokens = Tokenizer::tokenize(line, 1).unwrap();
-        assert_eq!(tokens[0], "PRINT");
-        assert_eq!(tokens[1], "😀");
+        assert_eq!(tokens[0].text, "PRINT");
+        assert_eq!(tokens[1].text, "😀");
+        assert_eq!(tokens[1].kind, TokenKind::StringLiteral);
     }
 
     #[test]

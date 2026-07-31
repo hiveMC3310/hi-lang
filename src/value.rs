@@ -1,6 +1,7 @@
 //! Defines the runtime value type.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
 
@@ -40,13 +41,16 @@ pub enum Value {
     Bool(bool),
     List(Rc<RefCell<Vec<Value>>>),
     File(Rc<RefCell<FileHandle>>),
+    Dict(Rc<RefCell<HashMap<Value, Value>>>),
 }
+
+impl Eq for Value {}
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Value::Int(a), Value::Int(b)) => a == b,
-            (Value::Float(a), Value::Float(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::List(a), Value::List(b)) => {
@@ -54,7 +58,40 @@ impl PartialEq for Value {
                 let b_borrow = b.borrow();
                 &*a_borrow == &*b_borrow
             }
+            (Value::Dict(a), Value::Dict(b)) => {
+                let a_borrow = a.borrow();
+                let b_borrow = b.borrow();
+                if a_borrow.len() != b_borrow.len() {
+                    return false;
+                }
+                for (k, v) in a_borrow.iter() {
+                    if let Some(bv) = b_borrow.get(k) {
+                        if v != bv {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+                true
+            }
             _ => false,
+        }
+    }
+}
+
+impl std::hash::Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Value::Int(i) => i.hash(state),
+            Value::Float(f) => f.to_bits().hash(state),
+            Value::String(s) => s.hash(state),
+            Value::Bool(b) => b.hash(state),
+
+            Value::List(_) | Value::Dict(_) | Value::File(_) => {
+                panic!("attempted to hash non‑hashable value")
+            }
         }
     }
 }
@@ -68,8 +105,16 @@ impl Value {
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
             Value::List(l) => !l.borrow().is_empty(),
+            Value::Dict(d) => !d.borrow().is_empty(),
             Value::File(_) => false,
         }
+    }
+
+    pub fn is_hashable(&self) -> bool {
+        matches!(
+            self,
+            Value::Int(_) | Value::Float(_) | Value::String(_) | Value::Bool(_)
+        )
     }
 }
 
@@ -87,13 +132,35 @@ impl fmt::Display for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", val)?;
+                    match val {
+                        Value::String(s) => write!(f, "\"{}\"", s)?,
+                        _ => write!(f, "{}", val)?,
+                    }
                 }
                 write!(f, "]")
             }
             Value::File(fh) => {
                 let handle = fh.borrow();
                 write!(f, "<file: {}>", handle.path)
+            }
+            Value::Dict(d) => {
+                let map = d.borrow();
+                write!(f, "{{")?;
+                for (i, (k, v)) in map.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    match k {
+                        Value::String(s) => write!(f, "\"{}\"", s)?,
+                        _ => write!(f, "{}", k)?,
+                    }
+                    write!(f, "=")?;
+                    match v {
+                        Value::String(s) => write!(f, "\"{}\"", s)?,
+                        _ => write!(f, "{}", v)?,
+                    }
+                }
+                write!(f, "}}")
             }
         }
     }

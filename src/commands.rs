@@ -53,16 +53,24 @@ pub enum Command {
     Slice(Value, Value, Value),
     Reverse(Value),
     Insert(Value, Value, Value),
-    Remove(Value, Value),
     IndexOf(Value, Value),
 
-    Open(String, String),
+    Open(Value, Value),
     Close(Option<Value>),
     Read(Value, Option<String>),
     Write(Value, Value),
     Readln(Value, Option<String>),
     Writeln(Value, Value),
     Eof(Option<Value>),
+
+    Dict(Option<String>),
+    Put(String, Value, Value),
+    Get(String, Value),
+    Has(String, Value),
+    Keys(String),
+    Values(String),
+
+    Remove(String, Value),
 }
 
 #[derive(Debug, Clone)]

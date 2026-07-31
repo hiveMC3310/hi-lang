@@ -489,8 +489,8 @@ fn test_new_string_methods() -> Result<(), Box<dyn std::error::Error>> {
     assert!(output.contains("ends_lo=true"));
     assert!(output.contains("replace=hello Rust"));
     assert!(output.contains("replace2=XYZ123XYZ"));
-    assert!(output.contains("split=[one, two, three]"));
-    assert!(output.contains("split2=[a, b, c]"));
+    assert!(output.contains("split=[\"one\", \"two\", \"three\"]"));
+    assert!(output.contains("split2=[\"a\", \"b\", \"c\"]"));
     assert!(output.contains("contains_world=true"));
     assert!(output.contains("contains_xyz=false"));
 
@@ -888,4 +888,111 @@ fn test_import_with_comments() {
     let result = preprocess_file(Path::new(&path_a)).unwrap();
     let expected = vec!["PRINT 100".to_string()];
     assert_eq!(result, expected);
+}
+
+// ---------- Dicts ---------
+#[test]
+fn test_dict_operations() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        DICT mydict
+        PUT mydict "name" "Alice"
+        PUT mydict "age" 30
+        PUT mydict "active" True
+
+        GET mydict "name"
+        POP name
+        PRINT "name=" name
+
+        GET mydict "age"
+        POP age
+        PRINT "age=" age
+
+        HAS mydict "age"
+        POP has_age
+        PRINT "has_age=" has_age
+
+        HAS mydict "salary"
+        POP has_salary
+        PRINT "has_salary=" has_salary
+
+        KEYS mydict
+        POP keys
+        PRINT "keys=" keys
+
+        VALUES mydict
+        POP values
+        PRINT "values=" values
+
+        LEN mydict
+        POP len
+        PRINT "len=" len
+
+        REMOVE mydict "age"
+        HAS mydict "age"
+        POP has_age2
+        PRINT "has_age2=" has_age2
+    "#;
+
+    let (result, output) = run_and_capture(code)?;
+    result?;
+
+    assert!(output.contains("name=Alice"));
+    assert!(output.contains("age=30"));
+    assert!(output.contains("has_age=true"));
+    assert!(output.contains("has_salary=false"));
+    assert!(output.contains("len=3"));
+    assert!(output.contains("has_age2=false"));
+
+    let keys_line = output.lines().find(|line| line.contains("keys=")).unwrap();
+    assert!(keys_line.contains("\"name\""));
+    assert!(keys_line.contains("\"age\""));
+    assert!(keys_line.contains("\"active\""));
+
+    let values_line = output
+        .lines()
+        .find(|line| line.contains("values="))
+        .unwrap();
+    assert!(values_line.contains("\"Alice\""));
+    assert!(values_line.contains("30"));
+    assert!(values_line.contains("true"));
+
+    Ok(())
+}
+#[test]
+fn test_dict_put_creates_variable() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        PUT newdict "key" 42
+        GET newdict "key"
+        POP val
+        PRINT "val=" val
+    "#;
+    let (result, output) = run_and_capture(code)?;
+    result?;
+    assert!(output.contains("val=42"));
+    Ok(())
+}
+
+#[test]
+fn test_dict_get_missing_key_error() {
+    let code = r#"
+        DICT d
+        GET d "missing"
+    "#;
+    let result = run_code(code);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_dict_remove_list_fallback() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        LIST 1 2 3 4
+        POP mylist
+        REMOVE mylist 1
+        POP newlist
+        PRINT "newlist=" newlist
+    "#;
+    let (result, output) = run_and_capture(code)?;
+    result?;
+    assert!(output.contains("newlist=[1, 3, 4]"));
+    Ok(())
 }

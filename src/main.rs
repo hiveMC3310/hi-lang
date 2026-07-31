@@ -21,6 +21,10 @@ use std::path::Path;
 struct Args {
     /// The .hi file to interpret.
     filename: Option<String>,
+
+    /// All remaining arguments are passed to the script.
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+    arguments: Vec<String>,
 }
 
 fn main() -> Result<()> {
@@ -44,6 +48,7 @@ fn main() -> Result<()> {
     let root_path = Path::new(&filename);
     let processed_lines = preprocess_file(root_path)?;
     let mut interpreter = Interpreter::new(processed_lines);
+    interpreter.set_argv(args.arguments);
 
     if let Err(e) = interpreter.run() {
         eprintln!("{} {}", "error:".red().bold(), e);

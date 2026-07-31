@@ -157,6 +157,41 @@ resulting list back onto the stack.
 | `REMOVE list index`         | Removes the element at the given position. Returns the modified list.                          |
 | `INDEXOF list element`      | Returns the first index of `element` in the list, or `-1` if not found.                        |
 
+### Dictionary Operations (v1.7.0+)
+
+Hi provides built‑in dictionaries (maps) with keys of type integer, float, string, or boolean. Dictionaries are *
+*mutable** and stored in variables.
+
+| Command              | Description                                                                                           |
+|----------------------|-------------------------------------------------------------------------------------------------------|
+| `DICT [var]`         | Creates an empty dictionary. If a variable name is given, stores it; otherwise pushes onto the stack. |
+| `PUT dict key value` | Inserts or updates the `key` with `value` in the dictionary.                                          |
+| `GET dict key`       | Retrieves the value for `key` and pushes it onto the stack.                                           |
+| `HAS dict key`       | Returns `True` if `key` exists in the dictionary, `False` otherwise.                                  |
+| `KEYS dict`          | Returns a list of all keys in the dictionary.                                                         |
+| `VALUES dict`        | Returns a list of all values in the dictionary.                                                       |
+| `LEN dict`           | Returns the number of key‑value pairs (works with `LEN` command).                                     |
+| `REMOVE dict key`    | Removes the key from the dictionary. Also works for removing from lists by index.                     |
+
+**Example:**
+
+```hi
+DICT user
+PUT user "name" "Alice"
+PUT user "age" 30
+PUT user "active" True
+
+GET user "name"
+POP name
+PRINT name      // Alice
+
+HAS user "age"
+POP has_age     // true
+
+KEYS user
+POP keys        // ["name", "age", "active"]
+```
+
 ### File Operations (v1.5.0+)
 
 Hi provides basic file I/O. All file operations work with file handles stored on the stack.
@@ -366,7 +401,42 @@ PRINT result   // 30
 
 ---
 
-## 7. REPL Mode (Interactive Shell)
+## 7. Command‑Line Arguments (v1.7.0+)
+
+When you run a Hi script, you can pass arguments after the filename:
+
+```bash
+hi script.hi arg1 arg2 --name Alice --verbose
+```
+
+The interpreter automatically provides two global variables:
+
+| Variable    | Type            | Description                                                                                                                 |
+|-------------|-----------------|-----------------------------------------------------------------------------------------------------------------------------|
+| `ARGS`      | List of strings | All positional arguments (no flags) in the order they appear.                                                               |
+| `ARGS_DICT` | Dictionary      | Parsed named arguments. Supports `--key value`, `--key=value`, `-k value`, `-k=value`. Flags without a value become `True`. |
+
+Positional arguments (those not starting with `-`) are **not** included in `ARGS_DICT`, but they are present in `ARGS`.
+
+**Example:**
+
+```hi
+ARGS
+POP positional
+PRINT "Positional args: " positional
+
+GET ARGS_DICT "name"
+POP name
+PRINT "Name: " name
+
+HAS ARGS_DICT "verbose"
+POP is_verbose
+PRINT "Verbose: " is_verbose
+```
+
+---
+
+## 8. REPL Mode (Interactive Shell)
 
 If you run the `hi` command without a filename, it starts an interactive REPL (Read‑Eval‑Print Loop):
 
@@ -391,7 +461,7 @@ until the block is properly closed.
 Example session:
 
 ```
-Hi REPL v1.6.0 — type :exit or :quit to quit
+Hi REPL v1.7.0 — type :exit or :quit to quit
 Enter commands (multi-line blocks like IF/WHILE/FUNC are supported)
 
 hi> LET x "Hello World!"
@@ -413,7 +483,7 @@ hi> :exit
 
 ---
 
-## 8. Full Example Program
+## 9. Full Example Program
 
 ```hi
 // Compute factorial of 5
@@ -441,12 +511,13 @@ PRINT "5! = " result
 
 ---
 
-## 9. Notes
+## 10. Notes
 
 - **SP** (Stack Pointer) always refers to the top of the stack.
 - **Booleans** are represented as `True` and `False` (case‑sensitive).
 - **Strings** are immutable; operations like `UPPER` create new strings.
 - **Lists** are mutable (with copy‑on‑write) – operations that change the list return the modified list.
+- **Dictionaries** are mutable – operations like `PUT`, `REMOVE` modify the dictionary in place.
 - The interpreter is **case‑insensitive** for command names, but **case‑sensitive** for variable names and boolean
   literals.
 
