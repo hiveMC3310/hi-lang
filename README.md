@@ -2,9 +2,8 @@
 
 **Hi** is a minimalist, stack‑based interpreted language that blends a **BASIC‑like syntax** with **Forth‑style stack
 operations**.  
-It supports variables, loops, conditionals, functions, interactive input, lists, and string operations, also I/O work
-with files — all written in
-**Rust** for speed and safety.
+It supports variables, loops, conditionals, functions, interactive input, lists, string operations, file I/O, and
+modular imports — all written in **Rust** for speed and safety.
 
 > **.hi** is the official file extension for Hi source files.
 
@@ -14,7 +13,7 @@ with files — all written in
 
 The easiest way to get started is to **download a pre‑built binary** from
 the [Releases](https://github.com/hiveMC3310/hi-lang/releases) page.  
-Choose the executable for your platform (Windows, Linux, macOS) and place it somewhere in your `PATH`.
+Choose the executable for your platform (Windows, Linux) and place it somewhere in your `PATH`.
 
 Alternatively, you can build from source:
 
@@ -41,6 +40,9 @@ The interpreter reads the file line by line and executes it.
 ---
 
 ## 💡 Examples
+
+Here are a few quick examples. For a complete set of ready‑to‑run programs, check out the [`examples/`](examples/)
+folder.
 
 ### Hello World
 
