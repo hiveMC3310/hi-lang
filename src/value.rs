@@ -42,6 +42,7 @@ pub enum Value {
     List(Rc<RefCell<Vec<Value>>>),
     File(Rc<RefCell<FileHandle>>),
     Dict(Rc<RefCell<HashMap<Value, Value>>>),
+    Function(String),
     Nil,
 }
 
@@ -91,6 +92,7 @@ impl std::hash::Hash for Value {
             Value::String(s) => s.hash(state),
             Value::Bool(b) => b.hash(state),
             Value::Nil => ().hash(state),
+            Value::Function(name) => name.hash(state),
             Value::List(_) | Value::Dict(_) | Value::File(_) => {
                 panic!("attempted to hash non‑hashable value")
             }
@@ -110,6 +112,7 @@ impl Value {
             Value::List(l) => !l.borrow().is_empty(),
             Value::Dict(d) => !d.borrow().is_empty(),
             Value::File(_) => false,
+            Value::Function(_) => true,
         }
     }
 
@@ -125,10 +128,17 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Int(i) => write!(f, "{}", i),
-            Value::Float(fl) => write!(f, "{}", fl),
+            Value::Float(fl) => {
+                if fl.fract() == 0.0 {
+                    write!(f, "{:.1}", fl)
+                } else {
+                    write!(f, "{}", fl)
+                }
+            }
             Value::String(s) => write!(f, "{}", s),
-            Value::Bool(b) => write!(f, "{}", b),
+            Value::Bool(b) => write!(f, "{}", if *b { "TRUE" } else { "FALSE" }),
             Value::Nil => write!(f, "nil"),
+            Value::Function(name) => write!(f, "<func {}>", name),
             Value::List(l) => {
                 let vec = l.borrow();
                 write!(f, "[")?;

@@ -21,7 +21,6 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
         "Hi REPL v{} — type :exit or :quit to quit",
         env!("CARGO_PKG_VERSION")
     );
-    println!("Enter commands (multi-line blocks like IF/WHILE/FUNC are supported)");
     println!();
 
     loop {

@@ -1,0 +1,46 @@
+// Demonstrates function definitions and recursion
+
+// Simple function
+FUNC greet(name)
+    RET concat("Hello, ", name)
+END
+
+LET message = greet("World")
+PRINT message
+
+// Function with multiple parameters
+FUNC add(a, b)
+    RET a + b
+END
+
+PRINT "3 + 5 = ", add(3, 5)
+
+// Recursive factorial
+FUNC factorial(n)
+    IF n <= 1 THEN
+        RET 1
+    ELSE
+        RET n * factorial(n - 1)
+    END
+END
+
+LET fact5 = factorial(5)
+PRINT "5! = ", fact5
+
+// Function with side effects (no explicit return)
+FUNC print_sum(a, b)
+    PRINT "Sum = ", a + b
+END
+
+print_sum(10, 20)   // prints sum, returns nil
+
+// Recursive Fibonacci
+FUNC fib(n)
+    IF n <= 1 THEN
+        RET n
+    ELSE
+        RET fib(n - 1) + fib(n - 2)
+    END
+END
+
+PRINT "fib(6) = ", fib(6)   // 8

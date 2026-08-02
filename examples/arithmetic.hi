@@ -1,0 +1,14 @@
+// Demonstrates arithmetic expressions
+
+LET a = 10
+LET b = 3
+
+PRINT "a = ", a
+PRINT "b = ", b
+PRINT "a + b = ", a + b
+PRINT "a - b = ", a - b
+PRINT "a * b = ", a * b
+PRINT "a / b = ", a / b          // yields float 3.333...
+PRINT "a % b = ", a % b          // yields 1
+PRINT "a ^ b = ", a ^ b          // 10^3 = 1000
+PRINT "(a + b) * 2 = ", (a + b) * 2

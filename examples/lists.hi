@@ -1,0 +1,37 @@
+// Demonstrates list operations
+
+LET a = [10, 20, 30, 40]
+PRINT "Original list: ", a
+
+PRINT "Length: ", len(a)
+PRINT "First element: ", a[0]
+PRINT "Last element: ", a[3]
+
+// Append
+LET b = append(a, 50)
+PRINT "After append 50: ", b
+
+// Insert
+LET c = insert(b, 2, 25)
+PRINT "After insert 25 at index 2: ", c
+
+// Remove
+LET d = remove(c, 3)
+PRINT "After remove index 3: ", d
+
+// Slice
+LET e = slice(d, 1, 3)
+PRINT "Slice from 1 length 3: ", e
+
+// Reverse
+LET f = reverse(d)
+PRINT "Reversed: ", f
+
+// Search
+PRINT "Index of 30: ", indexof(d, 30)
+PRINT "Contains 25? ", contains(d, 25)
+PRINT "Contains 99? ", contains(d, 99)
+
+// List concatenation
+LET g = concat([1, 2], [3, 4])
+PRINT "Concat [1,2] and [3,4]: ", g

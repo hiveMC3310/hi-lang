@@ -1,0 +1,37 @@
+// Demonstrates dictionary operations
+
+LET user = {"name" = "Alice", "age" = 30}
+PRINT "Original dict: ", user
+
+// Access
+PRINT "Name: ", user["name"]
+PRINT "Age: ", user["age"]
+
+// Add/update via bracket notation
+user["city"] = "New York"
+PRINT "After adding city: ", user
+
+// Update with put()
+put(user, "age", 31)
+PRINT "After updating age: ", user
+
+// Check existence
+PRINT "Contains 'name'? ", contains(user, "name")
+PRINT "Contains 'country'? ", contains(user, "country")
+
+// Get with default (nil)
+LET missing = get(user, "country")
+PRINT "Get 'country' (nil if missing): ", missing
+
+// Keys and values
+LET keys_list = keys(user)
+PRINT "Keys: ", keys_list
+LET values_list = values(user)
+PRINT "Values: ", values_list
+
+// Remove
+remove(user, "city")
+PRINT "After removing 'city': ", user
+
+// Length
+PRINT "Number of entries: ", len(user)

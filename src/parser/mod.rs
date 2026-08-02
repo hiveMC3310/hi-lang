@@ -44,6 +44,8 @@ impl<'a> Parser<'a> {
                 | TokenKind::LBracket
                 | TokenKind::LBrace
                 | TokenKind::Not
+                | TokenKind::Minus
+                | TokenKind::Plus
         )
     }
 
@@ -426,6 +428,17 @@ impl<'a> Parser<'a> {
                 let expr = self.parse_expr_precedence(0)?;
                 let span = tok.span.merge(&expr.span());
                 Ok(Expr::Unary(UnOp::Not, Box::new(expr), span))
+            }
+            TokenKind::Minus => {
+                self.pos += 1;
+                let expr = self.parse_expr_precedence(0)?;
+                let span = tok.span.merge(&expr.span());
+                Ok(Expr::Unary(UnOp::Neg, Box::new(expr), span))
+            }
+            TokenKind::Plus => {
+                self.pos += 1;
+                let expr = self.parse_expr_precedence(0)?;
+                Ok(expr)
             }
             _ => Err(ParseError {
                 span: tok.span,

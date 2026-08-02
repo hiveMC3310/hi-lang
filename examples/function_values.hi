@@ -1,0 +1,38 @@
+// Demonstrates first‑class functions and the call() built‑in
+
+FUNC double(x)
+    RET x * 2
+END
+
+FUNC triple(x)
+    RET x * 3
+END
+
+// Store functions in variables
+LET f = double
+LET g = triple
+
+PRINT "double(5) via f: ", call(f, 5)
+PRINT "triple(5) via g: ", call(g, 5)
+
+// Higher‑order function: apply a function to a list
+FUNC map_func(func, list)
+    LET result = []
+    FOR i = 0 TO len(list) - 1 DO
+        LET val = list[i]
+        LET mapped = call(func, val)
+        result = append(result, mapped)
+    NEXT
+    RET result
+END
+
+LET numbers = [1, 2, 3, 4]
+LET doubled = map_func(double, numbers)
+PRINT "Original: ", numbers
+PRINT "Doubled: ", doubled
+
+// Passing a function defined inline (using a variable)
+FUNC square(x) RET x * x END
+LET sq = square
+LET squared = map_func(sq, numbers)
+PRINT "Squared: ", squared

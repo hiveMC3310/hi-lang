@@ -2,7 +2,9 @@ use crate::ast::{Expr, Span};
 use crate::error::{InterpError, InterpResult};
 use crate::interpreter::Interpreter;
 use crate::value::{FileHandle, Value};
+use rand::RngExt;
 use std::cell::RefCell;
+use std::f64::consts::PI;
 use std::io::{BufRead, Read, Write};
 use std::rc::Rc;
 
@@ -11,7 +13,35 @@ pub type BuiltinFn = Rc<dyn Fn(&mut Interpreter, &[Expr], &Span) -> InterpResult
 pub struct Builtin {}
 
 impl Builtin {
-    pub fn hello_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+    fn get_number_arg(
+        interp: &mut Interpreter,
+        args: &[Expr],
+        span: &Span,
+        name: &str,
+    ) -> InterpResult<f64> {
+        if args.len() != 1 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: format!("{}() expects 1 argument, got {}", name, args.len()),
+            });
+        }
+        let val = interp.eval_expr(&args[0])?;
+        match val {
+            Value::Int(i) => Ok(i as f64),
+            Value::Float(f) => Ok(f),
+            _ => Err(InterpError::Runtime {
+                span: *span,
+                message: format!(
+                    "{}() expects a number, got {}",
+                    name,
+                    crate::utils::type_name(&val)
+                ),
+            }),
+        }
+    }
+
+    // ---------- Just Hello ----------
+    pub fn hello_fn(_: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
         if args.len() != 0 {
             return Err(InterpError::Runtime {
                 span: *span,
@@ -20,6 +50,75 @@ impl Builtin {
         }
         println!("Hello, World!");
         Ok(Value::Nil)
+    }
+
+    // ---------- Lambda ----------
+    pub fn call_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        if args.is_empty() {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: "call() expects at least 1 argument (function)".to_string(),
+            });
+        }
+
+        let func_val = interp.eval_expr(&args[0])?;
+        let func_name = match func_val {
+            Value::Function(name) => name,
+            _ => {
+                return Err(InterpError::Runtime {
+                    span: *span,
+                    message: format!(
+                        "call() expects a function, got {}",
+                        crate::utils::type_name(&func_val)
+                    ),
+                });
+            }
+        };
+
+        let (params, body) =
+            interp
+                .functions
+                .get(&func_name)
+                .cloned()
+                .ok_or_else(|| InterpError::Runtime {
+                    span: *span,
+                    message: format!("Function '{}' not found", func_name),
+                })?;
+        let call_args = &args[1..];
+        if call_args.len() != params.len() {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: format!(
+                    "Function '{}' expects {} arguments, got {}",
+                    func_name,
+                    params.len(),
+                    call_args.len()
+                ),
+            });
+        }
+
+        let mut arg_values = Vec::new();
+        for arg_expr in call_args {
+            arg_values.push(interp.eval_expr(arg_expr)?);
+        }
+
+        let mut child_env = interp.env.child();
+        for (param, arg_val) in params.iter().zip(arg_values) {
+            child_env.declare(param.clone(), arg_val);
+        }
+        let old_env = std::mem::replace(&mut interp.env, child_env);
+        let old_return = interp.return_value.take();
+
+        for stmt in body {
+            interp.execute_stmt(&stmt)?;
+            if interp.return_value.is_some() || interp.break_flag {
+                break;
+            }
+        }
+        let result = interp.return_value.take().unwrap_or(Value::Nil);
+        interp.env = old_env;
+        interp.return_value = old_return;
+        Ok(result)
     }
 
     // ---------- String, List and Dict methods ----------
@@ -956,5 +1055,260 @@ impl Builtin {
         let handle = fh.borrow();
         let is_eof = handle.eof || handle.reader.is_none() && handle.writer.is_none();
         Ok(Value::Bool(is_eof))
+    }
+
+    // ---------- Math ----------
+    pub fn sin_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "sin")?;
+        Ok(Value::Float(num.sin()))
+    }
+
+    pub fn cos_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "cos")?;
+        Ok(Value::Float(num.cos()))
+    }
+
+    pub fn tan_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "tan")?;
+        Ok(Value::Float(num.tan()))
+    }
+
+    pub fn asin_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "asin")?;
+        if num < -1.0 || num > 1.0 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: "asin() argument must be between -1 and 1".to_string(),
+            });
+        }
+        Ok(Value::Float(num.asin()))
+    }
+
+    pub fn acos_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "acos")?;
+        if num < -1.0 || num > 1.0 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: "acos() argument must be between -1 and 1".to_string(),
+            });
+        }
+        Ok(Value::Float(num.acos()))
+    }
+
+    pub fn atan_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "atan")?;
+        Ok(Value::Float(num.atan()))
+    }
+
+    pub fn sqrt_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "sqrt")?;
+        if num < 0.0 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: "sqrt() argument must be non-negative".to_string(),
+            });
+        }
+        Ok(Value::Float(num.sqrt()))
+    }
+
+    pub fn torad_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "torad")?;
+        Ok(Value::Float(num * PI / 180.0))
+    }
+
+    pub fn todeg_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "todeg")?;
+        Ok(Value::Float(num * 180.0 / PI))
+    }
+
+    pub fn exp_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "exp")?;
+        Ok(Value::Float(num.exp()))
+    }
+
+    pub fn log_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "log")?;
+        if num <= 0.0 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: "log() argument must be positive".to_string(),
+            });
+        }
+        Ok(Value::Float(num.ln()))
+    }
+
+    pub fn log2_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "log2")?;
+        if num <= 0.0 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: "log2() argument must be positive".to_string(),
+            });
+        }
+        Ok(Value::Float(num.log2()))
+    }
+
+    pub fn log10_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "log10")?;
+        if num <= 0.0 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: "log10() argument must be positive".to_string(),
+            });
+        }
+        Ok(Value::Float(num.log10()))
+    }
+
+    pub fn ceil_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "ceil")?;
+        Ok(Value::Float(num.ceil()))
+    }
+
+    pub fn floor_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "floor")?;
+        Ok(Value::Float(num.floor()))
+    }
+
+    pub fn round_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "round")?;
+        Ok(Value::Float(num.round()))
+    }
+
+    pub fn abs_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        let num = Self::get_number_arg(interp, args, span, "abs")?;
+        Ok(Value::Float(num.abs()))
+    }
+
+    pub fn rand_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        if args.len() != 2 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: format!(
+                    "rand() expects 2 arguments (start, end), got {}",
+                    args.len()
+                ),
+            });
+        }
+        let start_val = interp.eval_expr(&args[0])?;
+        let end_val = interp.eval_expr(&args[1])?;
+        let start = match start_val {
+            Value::Int(i) => i,
+            _ => {
+                return Err(InterpError::Runtime {
+                    span: *span,
+                    message: "rand() start must be integer".to_string(),
+                });
+            }
+        };
+        let end = match end_val {
+            Value::Int(i) => i,
+            _ => {
+                return Err(InterpError::Runtime {
+                    span: *span,
+                    message: "rand() end must be integer".to_string(),
+                });
+            }
+        };
+        if start > end {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: "rand() start must be <= end".to_string(),
+            });
+        }
+        let mut rng = rand::rng();
+        let value = rng.random_range(start..=end);
+        Ok(Value::Int(value))
+    }
+
+    // ---------- Converts ----------
+    pub fn tostring_fn(
+        interp: &mut Interpreter,
+        args: &[Expr],
+        span: &Span,
+    ) -> InterpResult<Value> {
+        if args.len() != 1 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: format!("tostring() expects 1 argument, got {}", args.len()),
+            });
+        }
+        let val = interp.eval_expr(&args[0])?;
+        Ok(Value::String(val.to_string()))
+    }
+
+    pub fn toint_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        if args.len() != 1 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: format!("toint() expects 1 argument, got {}", args.len()),
+            });
+        }
+        let val = interp.eval_expr(&args[0])?;
+        match val {
+            Value::Int(i) => Ok(Value::Int(i)),
+            Value::Float(f) => Ok(Value::Int(f as i64)),
+            Value::String(s) => {
+                let trimmed = s.trim();
+                if let Ok(i) = trimmed.parse::<i64>() {
+                    Ok(Value::Int(i))
+                } else {
+                    Err(InterpError::Runtime {
+                        span: *span,
+                        message: format!("Cannot convert '{}' to integer", s),
+                    })
+                }
+            }
+            _ => Err(InterpError::Runtime {
+                span: *span,
+                message: format!(
+                    "toint() expects number or string, got {}",
+                    crate::utils::type_name(&val)
+                ),
+            }),
+        }
+    }
+
+    pub fn tofloat_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        if args.len() != 1 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: format!("tofloat() expects 1 argument, got {}", args.len()),
+            });
+        }
+        let val = interp.eval_expr(&args[0])?;
+        match val {
+            Value::Int(i) => Ok(Value::Float(i as f64)),
+            Value::Float(f) => Ok(Value::Float(f)),
+            Value::String(s) => {
+                let trimmed = s.trim();
+                if let Ok(f) = trimmed.parse::<f64>() {
+                    Ok(Value::Float(f))
+                } else {
+                    Err(InterpError::Runtime {
+                        span: *span,
+                        message: format!("Cannot convert '{}' to float", s),
+                    })
+                }
+            }
+            _ => Err(InterpError::Runtime {
+                span: *span,
+                message: format!(
+                    "tofloat() expects number or string, got {}",
+                    crate::utils::type_name(&val)
+                ),
+            }),
+        }
+    }
+
+    pub fn typeof_fn(interp: &mut Interpreter, args: &[Expr], span: &Span) -> InterpResult<Value> {
+        if args.len() != 1 {
+            return Err(InterpError::Runtime {
+                span: *span,
+                message: format!("typeof() expects 1 argument, got {}", args.len()),
+            });
+        }
+        let val = interp.eval_expr(&args[0])?;
+        let type_name = crate::utils::type_name(&val);
+        Ok(Value::String(type_name.to_string()))
     }
 }

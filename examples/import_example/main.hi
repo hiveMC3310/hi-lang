@@ -1,0 +1,12 @@
+// Main program that imports lib.hi
+
+IMPORT "lib.hi"
+
+LET message = greet("Alice")
+PRINT message
+
+LET sum = add(10, 20)
+PRINT "10 + 20 = ", sum
+
+LET product = multiply(5, 6)
+PRINT "5 * 6 = ", product

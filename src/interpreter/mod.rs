@@ -94,6 +94,11 @@ impl Interpreter {
         // ARGS_DICT
         let args_dict = Value::Dict(Rc::new(RefCell::new(HashMap::new())));
         self.env.declare("ARGS_DICT".to_string(), args_dict);
+        // Math consts
+        self.env
+            .declare("PI".to_string(), Value::Float(std::f64::consts::PI));
+        self.env
+            .declare("E".to_string(), Value::Float(std::f64::consts::E));
     }
 
     fn init_builtins(&mut self) {
@@ -155,6 +160,52 @@ impl Interpreter {
             .insert("close".to_string(), Rc::new(Builtin::close_fn));
         self.builtins
             .insert("eof".to_string(), Rc::new(Builtin::eof_fn));
+        self.builtins
+            .insert("sin".to_string(), Rc::new(Builtin::sin_fn));
+        self.builtins
+            .insert("cos".to_string(), Rc::new(Builtin::cos_fn));
+        self.builtins
+            .insert("tan".to_string(), Rc::new(Builtin::tan_fn));
+        self.builtins
+            .insert("asin".to_string(), Rc::new(Builtin::asin_fn));
+        self.builtins
+            .insert("acos".to_string(), Rc::new(Builtin::acos_fn));
+        self.builtins
+            .insert("atan".to_string(), Rc::new(Builtin::atan_fn));
+        self.builtins
+            .insert("sqrt".to_string(), Rc::new(Builtin::sqrt_fn));
+        self.builtins
+            .insert("torad".to_string(), Rc::new(Builtin::torad_fn));
+        self.builtins
+            .insert("todeg".to_string(), Rc::new(Builtin::todeg_fn));
+        self.builtins
+            .insert("exp".to_string(), Rc::new(Builtin::exp_fn));
+        self.builtins
+            .insert("log".to_string(), Rc::new(Builtin::log_fn));
+        self.builtins
+            .insert("log2".to_string(), Rc::new(Builtin::log2_fn));
+        self.builtins
+            .insert("log10".to_string(), Rc::new(Builtin::log10_fn));
+        self.builtins
+            .insert("ceil".to_string(), Rc::new(Builtin::ceil_fn));
+        self.builtins
+            .insert("floor".to_string(), Rc::new(Builtin::floor_fn));
+        self.builtins
+            .insert("round".to_string(), Rc::new(Builtin::round_fn));
+        self.builtins
+            .insert("abs".to_string(), Rc::new(Builtin::abs_fn));
+        self.builtins
+            .insert("rand".to_string(), Rc::new(Builtin::rand_fn));
+        self.builtins
+            .insert("tostring".to_string(), Rc::new(Builtin::tostring_fn));
+        self.builtins
+            .insert("toint".to_string(), Rc::new(Builtin::toint_fn));
+        self.builtins
+            .insert("tofloat".to_string(), Rc::new(Builtin::tofloat_fn));
+        self.builtins
+            .insert("call".to_string(), Rc::new(Builtin::call_fn));
+        self.builtins
+            .insert("typeof".to_string(), Rc::new(Builtin::typeof_fn));
     }
 
     pub fn set_argv(&mut self, argv: Vec<String>) {
@@ -363,6 +414,7 @@ impl Interpreter {
                     });
                 }
                 let mut current = start;
+                self.loop_depth += 1;
                 while (step > 0 && current <= end) || (step < 0 && current >= end) {
                     self.env.declare(var.clone(), Value::Int(current));
                     for stmt in body {
@@ -376,6 +428,7 @@ impl Interpreter {
                     }
                     current += step;
                 }
+                self.loop_depth -= 1;
                 Ok(())
             }
             Stmt::Break(span) => {
@@ -425,10 +478,18 @@ impl Interpreter {
             Expr::Float(f, _) => Ok(Value::Float(*f)),
             Expr::String(s, _) => Ok(Value::String(s.clone())),
             Expr::Bool(b, _) => Ok(Value::Bool(*b)),
-            Expr::Variable(name, span) => self.env.get(name).ok_or_else(|| InterpError::Runtime {
-                span: *span,
-                message: format!("Undefined variable '{}'", name),
-            }),
+            Expr::Variable(name, span) => {
+                if let Some(v) = self.env.get(name) {
+                    return Ok(v);
+                }
+                if self.functions.contains_key(name) {
+                    return Ok(Value::Function(name.clone()));
+                }
+                Err(InterpError::Runtime {
+                    span: *span,
+                    message: format!("Undefined variable or function '{}'", name),
+                })
+            }
             Expr::Binary(op, left, right, span) => {
                 let left_val = self.eval_expr(left)?;
                 let right_val = self.eval_expr(right)?;
@@ -438,6 +499,17 @@ impl Interpreter {
                 let val = self.eval_expr(expr)?;
                 match op {
                     UnOp::Not => Ok(Value::Bool(!val.as_bool())),
+                    UnOp::Neg => match val {
+                        Value::Int(i) => Ok(Value::Int(-i)),
+                        Value::Float(f) => Ok(Value::Float(-f)),
+                        _ => Err(InterpError::Runtime {
+                            span: expr.span(),
+                            message: format!(
+                                "Cannot negate value of type {}",
+                                crate::utils::type_name(&val)
+                            ),
+                        }),
+                    },
                 }
             }
             Expr::Call(name, args, span) => {
@@ -630,7 +702,33 @@ impl Interpreter {
                         message: "Division by zero".to_string(),
                     });
                 }
-                Self::apply_arithmetic(left, right, |x, y| x / y, |x, y| x / y, span)
+                let af = match left {
+                    Value::Int(i) => *i as f64,
+                    Value::Float(f) => *f,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            span: *span,
+                            message: "Division requires numbers".to_string(),
+                        });
+                    }
+                };
+                let bf = match right {
+                    Value::Int(i) => *i as f64,
+                    Value::Float(f) => *f,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            span: *span,
+                            message: "Division requires numbers".to_string(),
+                        });
+                    }
+                };
+                let result = af / bf;
+
+                if result.fract() == 0.0 {
+                    Ok(Value::Int(result as i64))
+                } else {
+                    Ok(Value::Float(result))
+                }
             }
             BinOp::Mod => {
                 if crate::utils::is_zero(right) {
