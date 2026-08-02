@@ -1,5 +1,9 @@
 # Hi Language
 
+> **⚠️ This is the development branch (v2.0.0-dev).**  
+> The language is under active development – syntax, features, and commands are subject to change.  
+> For the stable version, please use the latest [release](https://github.com/hiveMC3310/hi-lang/releases).
+
 **Hi** is a minimalist, stack‑based interpreted language that blends a **BASIC‑like syntax** with **Forth‑style stack
 operations**.  
 It supports variables, loops, conditionals, functions, interactive input, lists, string operations, file I/O, and

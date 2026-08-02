@@ -44,8 +44,10 @@ pub struct Program {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
     Let(String, Expr, Span),
+    Input(Option<String>, String, Span),
     If(Expr, Block, Option<Block>, Span),
     While(Expr, Block, Span),
+    For(String, Box<Expr>, Box<Expr>, Option<Box<Expr>>, Block, Span),
     Break(Span),
     Func(String, Vec<String>, Block, Span),
     Return(Option<Expr>, Span),

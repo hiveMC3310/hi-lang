@@ -53,7 +53,7 @@ fn main() -> Result<()> {
     let mut parser = parser::Parser::new(&tokens);
     let program = parser.parse()?;
     let mut interpreter = Interpreter::new();
-    // interpreter.set_argv(args.arguments);
+    interpreter.set_argv(args.arguments);
 
     if let Err(e) = interpreter.run(&program) {
         eprintln!("{} {}", "error:".red().bold(), e);

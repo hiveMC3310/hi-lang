@@ -26,6 +26,27 @@ impl<'a> Parser<'a> {
         self.peek().kind == kind
     }
 
+    /// Checks if the current token is Ident.
+    fn peek_if_ident(&self) -> bool {
+        matches!(self.peek().kind, TokenKind::Ident(_))
+    }
+
+    fn is_expr_start(kind: &TokenKind) -> bool {
+        matches!(
+            kind,
+            TokenKind::Int(_)
+                | TokenKind::Float(_)
+                | TokenKind::String(_)
+                | TokenKind::True
+                | TokenKind::False
+                | TokenKind::Ident(_)
+                | TokenKind::LParen
+                | TokenKind::LBracket
+                | TokenKind::LBrace
+                | TokenKind::Not
+        )
+    }
+
     /// Consumes a token of the expected kind, advances position.
     fn consume(&mut self, expected: TokenKind) -> ParseResult<Token> {
         let tok = self.peek().clone();
@@ -37,6 +58,21 @@ impl<'a> Parser<'a> {
                 message: format!("Expected {:?}, got {:?}", expected, tok.kind),
                 span: tok.span,
             })
+        }
+    }
+
+    /// Consumes a string literal and returns its content.
+    fn consume_string(&mut self) -> ParseResult<String> {
+        let tok = self.peek().clone();
+        match &tok.kind {
+            TokenKind::String(s) => {
+                self.pos += 1;
+                Ok(s.clone())
+            }
+            _ => Err(ParseError {
+                message: format!("Expected string literal, got {:?}", tok.kind),
+                span: tok.span,
+            }),
         }
     }
 
@@ -75,6 +111,8 @@ impl<'a> Parser<'a> {
             TokenKind::Ret => self.parse_return(),
             TokenKind::Break => self.parse_break(),
             TokenKind::Print => self.parse_print(),
+            TokenKind::Input => self.parse_input(),
+            TokenKind::For => self.parse_for(),
             _ => {
                 let left = self.parse_expression()?;
 
@@ -111,6 +149,22 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Let(name, expr, span))
     }
 
+    // ---- INPUT [prompt] var ----
+    fn parse_input(&mut self) -> ParseResult<Stmt> {
+        let start = self.peek().span;
+        self.consume(TokenKind::Input)?;
+        let (prompt, var) = if self.peek_if_ident() {
+            let (var, _) = self.consume_ident()?;
+            (None, var)
+        } else {
+            let prompt = self.consume_string()?;
+            let (var, _) = self.consume_ident()?;
+            (Some(prompt), var)
+        };
+        let span = start.merge(&self.tokens[self.pos - 1].span);
+        Ok(Stmt::Input(prompt, var, span))
+    }
+
     // ---- IF cond THEN block ELSE block END ----
     fn parse_if(&mut self) -> ParseResult<Stmt> {
         let start = self.peek().span;
@@ -139,6 +193,35 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::End)?;
         let span = start.merge(&self.tokens[self.pos - 1].span);
         Ok(Stmt::While(cond, block, span))
+    }
+
+    // ---- FOR var = start TO end DO block NEXT [step] ----
+    fn parse_for(&mut self) -> ParseResult<Stmt> {
+        let start = self.peek().span;
+        self.consume(TokenKind::For)?;
+        let (var, _) = self.consume_ident()?;
+        self.consume(TokenKind::Assign)?;
+        let start_expr = self.parse_expression()?;
+        self.consume(TokenKind::To)?;
+        let end_expr = self.parse_expression()?;
+        self.consume(TokenKind::Do)?;
+        let body = self.parse_block(&[TokenKind::Next])?;
+        self.consume(TokenKind::Next)?;
+        // optional step
+        let step = if Self::is_expr_start(&self.peek().kind) {
+            Some(Box::new(self.parse_expression()?))
+        } else {
+            None
+        };
+        let span = start.merge(&self.tokens[self.pos - 1].span);
+        Ok(Stmt::For(
+            var,
+            Box::new(start_expr),
+            Box::new(end_expr),
+            step,
+            body,
+            span,
+        ))
     }
 
     // ---- FUNC name(params) block END ----
@@ -420,7 +503,7 @@ mod tests {
     use crate::ast::{BinOp, Span, UnOp};
     use crate::parser::lexer::Lexer;
 
-    // ---- Вспомогательные функции для удаления спанов ----
+    // ---- Helper functions for removing spans ----
     pub fn strip_spans_expr(expr: &Expr) -> Expr {
         match expr {
             Expr::Int(i, _) => Expr::Int(*i, Span::dummy()),
@@ -465,6 +548,15 @@ mod tests {
             Stmt::Let(name, expr, _) => {
                 Stmt::Let(name.clone(), strip_spans_expr(expr), Span::dummy())
             }
+            Stmt::Input(prompt, var, _) => Stmt::Input(prompt.clone(), var.clone(), Span::dummy()),
+            Stmt::For(var, start, end, step, body, _) => Stmt::For(
+                var.clone(),
+                Box::new(strip_spans_expr(start)),
+                Box::new(strip_spans_expr(end)),
+                step.as_ref().map(|s| Box::new(strip_spans_expr(s))),
+                body.iter().map(strip_spans_stmt).collect(),
+                Span::dummy(),
+            ),
             Stmt::If(cond, then_block, else_block, _) => Stmt::If(
                 strip_spans_expr(cond),
                 then_block.iter().map(strip_spans_stmt).collect(),
@@ -506,7 +598,7 @@ mod tests {
         }
     }
 
-    // Вспомогательные функции для парсинга и нормализации
+    // ---- Helper functions for parsing and normalization ----
     fn parse_normalized(input: &str) -> Program {
         let tokens = Lexer::tokenize(input).expect("tokenization failed");
         let mut parser = Parser::new(&tokens);
@@ -523,7 +615,7 @@ mod tests {
         }
     }
 
-    // ---- Тесты ----
+    // ---- Tests ----
     #[test]
     fn test_literals() {
         let expr = parse_expr_normalized("42");
@@ -932,7 +1024,46 @@ mod tests {
         assert_eq!(prog.stmts.len(), 3);
     }
 
-    // ---- Тесты ошибок  ----
+    #[test]
+    fn test_input() {
+        let prog = parse_normalized("INPUT x");
+        match &prog.stmts[0] {
+            Stmt::Input(None, var, _) => assert_eq!(var, "x"),
+            _ => panic!("Expected Input without prompt"),
+        }
+
+        let prog = parse_normalized("INPUT \"Enter: \" x");
+        match &prog.stmts[0] {
+            Stmt::Input(Some(prompt), var, _) => {
+                assert_eq!(prompt, "Enter: ");
+                assert_eq!(var, "x");
+            }
+            _ => panic!("Expected Input with prompt"),
+        }
+    }
+
+    #[test]
+    fn test_for() {
+        let prog = parse_normalized("FOR i = 0 TO 10 DO PRINT i NEXT 2");
+        match &prog.stmts[0] {
+            Stmt::For(var, start, end, step, body, _) => {
+                assert_eq!(var, "i");
+                assert_eq!(**start, Expr::Int(0, Span::dummy()));
+                assert_eq!(**end, Expr::Int(10, Span::dummy()));
+                assert_eq!(**step.as_ref().unwrap(), Expr::Int(2, Span::dummy()));
+                assert_eq!(body.len(), 1);
+            }
+            _ => panic!("Expected For statement"),
+        }
+
+        let prog = parse_normalized("FOR i = 0 TO 10 DO PRINT i NEXT");
+        match &prog.stmts[0] {
+            Stmt::For(_, _, _, step, _, _) => assert!(step.is_none()),
+            _ => panic!("Expected For without step"),
+        }
+    }
+
+    // ---- Tests errors  ----
     #[test]
     fn test_parse_error_unexpected_token() {
         let tokens = Lexer::tokenize("+").unwrap();
@@ -964,7 +1095,7 @@ mod tests {
             Expr::Binary(BinOp::Div, left, right, _) => {
                 match (*left, *right) {
                     (Expr::Binary(BinOp::Mul, _, _, _), Expr::Binary(BinOp::Pow, _, _, _)) => {
-                        // структура верна
+                        // pass
                     }
                     _ => panic!("Wrong structure"),
                 }

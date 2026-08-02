@@ -1,6 +1,8 @@
 # Hi Language — Language Reference
 
-This document describes the syntax and semantics of the **Hi** programming language.
+> **⚠️ This document describes the **development version** of Hi (v2.0.0-dev).**  
+> The syntax and semantics are not final and may change before the stable release.  
+> For the current stable version, refer to the [v1.x documentation](https://github.com/hiveMC3310/hi-lang/tree/v1.x).
 
 > **Note:** Hi is a stack‑based interpreted language. You can write programs in `.hi` files and run them with the `hi`
 > interpreter.

@@ -6,11 +6,15 @@ use crate::error::LexError;
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     Let,
+    Input,
     If,
     Then,
     Else,
     End,
     While,
+    For,
+    To,
+    Next,
     Do,
     Func,
     Ret,
@@ -296,11 +300,15 @@ impl Lexer {
                 }
                 let kind = match ident.as_str() {
                     "LET" => TokenKind::Let,
+                    "INPUT" => TokenKind::Input,
                     "IF" => TokenKind::If,
                     "THEN" => TokenKind::Then,
                     "ELSE" => TokenKind::Else,
                     "END" => TokenKind::End,
                     "WHILE" => TokenKind::While,
+                    "FOR" => TokenKind::For,
+                    "TO" => TokenKind::To,
+                    "NEXT" => TokenKind::Next,
                     "DO" => TokenKind::Do,
                     "FUNC" => TokenKind::Func,
                     "RET" => TokenKind::Ret,

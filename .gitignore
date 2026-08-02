@@ -3,4 +3,3 @@
 *.swp
 .vscode/
 .idea/
-interpreter.rs

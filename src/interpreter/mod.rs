@@ -1,10 +1,14 @@
 //! Interpreter for the Hi language, executes AST.
 
+mod builtins;
+
 use crate::ast::{BinOp, Block, Expr, Program, Span, Stmt, UnOp};
 use crate::error::{InterpError, InterpResult};
+use crate::interpreter::builtins::{Builtin, BuiltinFn};
 use crate::value::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io::Write;
 use std::rc::Rc;
 
 #[derive(Clone)]
@@ -38,13 +42,21 @@ impl Environment {
         }
     }
 
-    pub fn set(&mut self, name: String, value: Value) {
-        if self.vars.contains_key(&name) {
-            self.vars.insert(name, value);
+    pub fn declare(&mut self, name: String, value: Value) {
+        self.vars.insert(name, value);
+    }
+
+    pub fn assign(&mut self, name: &str, value: Value, span: &Span) -> InterpResult<()> {
+        if self.vars.contains_key(name) {
+            self.vars.insert(name.to_string(), value);
+            Ok(())
         } else if let Some(parent) = &mut self.parent {
-            parent.set(name, value);
+            parent.assign(name, value, span)
         } else {
-            self.vars.insert(name, value);
+            Err(InterpError::Runtime {
+                span: *span,
+                message: format!("Undefined variable '{}'", name),
+            })
         }
     }
 }
@@ -52,20 +64,158 @@ impl Environment {
 pub struct Interpreter {
     pub env: Environment,
     pub functions: HashMap<String, (Vec<String>, Block)>,
+    pub builtins: HashMap<String, BuiltinFn>,
     pub return_value: Option<Value>,
     pub break_flag: bool,
     pub loop_depth: usize,
+    pub argv: Vec<String>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self {
+        let mut s = Self {
             env: Environment::new(),
             functions: HashMap::new(),
             return_value: None,
             break_flag: false,
             loop_depth: 0,
+            builtins: HashMap::new(),
+            argv: Vec::new(),
+        };
+        s.init_builtins();
+        s.init_globals();
+        s
+    }
+
+    fn init_globals(&mut self) {
+        // ARGS
+        let args_list = Value::List(Rc::new(RefCell::new(Vec::new())));
+        self.env.declare("ARGS".to_string(), args_list);
+        // ARGS_DICT
+        let args_dict = Value::Dict(Rc::new(RefCell::new(HashMap::new())));
+        self.env.declare("ARGS_DICT".to_string(), args_dict);
+    }
+
+    fn init_builtins(&mut self) {
+        self.builtins
+            .insert("hello".to_string(), Rc::new(Builtin::hello_fn));
+        self.builtins
+            .insert("len".to_string(), Rc::new(Builtin::len_fn));
+        self.builtins
+            .insert("keys".to_string(), Rc::new(Builtin::keys_fn));
+        self.builtins
+            .insert("values".to_string(), Rc::new(Builtin::values_fn));
+        self.builtins
+            .insert("append".to_string(), Rc::new(Builtin::append_fn));
+        self.builtins
+            .insert("insert".to_string(), Rc::new(Builtin::insert_fn));
+        self.builtins
+            .insert("remove".to_string(), Rc::new(Builtin::remove_fn));
+        self.builtins
+            .insert("contains".to_string(), Rc::new(Builtin::contains_fn));
+        self.builtins
+            .insert("split".to_string(), Rc::new(Builtin::split_fn));
+        self.builtins
+            .insert("replace".to_string(), Rc::new(Builtin::replace_fn));
+        self.builtins
+            .insert("starts".to_string(), Rc::new(Builtin::starts_fn));
+        self.builtins
+            .insert("ends".to_string(), Rc::new(Builtin::ends_fn));
+        self.builtins
+            .insert("upper".to_string(), Rc::new(Builtin::upper_fn));
+        self.builtins
+            .insert("lower".to_string(), Rc::new(Builtin::lower_fn));
+        self.builtins
+            .insert("trim".to_string(), Rc::new(Builtin::trim_fn));
+        self.builtins
+            .insert("concat".to_string(), Rc::new(Builtin::concat_fn));
+        self.builtins
+            .insert("substr".to_string(), Rc::new(Builtin::substr_fn));
+        self.builtins
+            .insert("slice".to_string(), Rc::new(Builtin::slice_fn));
+        self.builtins
+            .insert("reverse".to_string(), Rc::new(Builtin::reverse_fn));
+        self.builtins
+            .insert("indexof".to_string(), Rc::new(Builtin::indexof_fn));
+        self.builtins
+            .insert("put".to_string(), Rc::new(Builtin::put_fn));
+        self.builtins
+            .insert("get".to_string(), Rc::new(Builtin::get_fn));
+        self.builtins
+            .insert("open".to_string(), Rc::new(Builtin::open_fn));
+        self.builtins
+            .insert("read".to_string(), Rc::new(Builtin::read_fn));
+        self.builtins
+            .insert("readln".to_string(), Rc::new(Builtin::readln_fn));
+        self.builtins
+            .insert("write".to_string(), Rc::new(Builtin::write_fn));
+        self.builtins
+            .insert("writeln".to_string(), Rc::new(Builtin::writeln_fn));
+        self.builtins
+            .insert("close".to_string(), Rc::new(Builtin::close_fn));
+        self.builtins
+            .insert("eof".to_string(), Rc::new(Builtin::eof_fn));
+    }
+
+    pub fn set_argv(&mut self, argv: Vec<String>) {
+        self.argv = argv.clone();
+
+        let mut positional = Vec::new();
+        let mut dict = HashMap::new();
+        let mut iter = argv.iter().peekable();
+
+        while let Some(arg) = iter.next() {
+            if arg.starts_with("--") && arg.len() > 2 {
+                let key_str = arg[2..].to_string();
+                if let Some(eq_pos) = key_str.find('=') {
+                    let key = key_str[..eq_pos].to_string();
+                    let value = key_str[eq_pos + 1..].to_string();
+                    dict.insert(Value::String(key), Value::String(value));
+                } else {
+                    if let Some(next_arg) = iter.peek() {
+                        if !next_arg.starts_with('-') {
+                            let val = (*next_arg).clone();
+                            dict.insert(Value::String(key_str), Value::String(val));
+                            iter.next();
+                        } else {
+                            dict.insert(Value::String(key_str), Value::Bool(true));
+                        }
+                    } else {
+                        dict.insert(Value::String(key_str), Value::Bool(true));
+                    }
+                }
+            } else if arg.starts_with('-') && arg.len() > 1 {
+                let key_str = arg[1..].to_string();
+                if let Some(eq_pos) = key_str.find('=') {
+                    let key = key_str[..eq_pos].to_string();
+                    let value = key_str[eq_pos + 1..].to_string();
+                    dict.insert(Value::String(key), Value::String(value));
+                } else {
+                    if let Some(next_arg) = iter.peek() {
+                        if !next_arg.starts_with('-') {
+                            let val = (*next_arg).clone();
+                            dict.insert(Value::String(key_str), Value::String(val));
+                            iter.next();
+                        } else {
+                            dict.insert(Value::String(key_str), Value::Bool(true));
+                        }
+                    } else {
+                        dict.insert(Value::String(key_str), Value::Bool(true));
+                    }
+                }
+            } else {
+                positional.push(Value::String(arg.clone()));
+            }
         }
+
+        // Update ARGS
+        let args_rc = Rc::new(RefCell::new(positional));
+        self.env.declare("ARGS".to_string(), Value::List(args_rc));
+
+        // Update ARGS_DICT
+        let dict_rc = Rc::new(RefCell::new(dict));
+        self.env
+            .declare("ARGS_DICT".to_string(), Value::Dict(dict_rc));
     }
 
     /// Entry point: execute the program.
@@ -83,14 +233,14 @@ impl Interpreter {
         match stmt {
             Stmt::Let(name, expr, _) => {
                 let val = self.eval_expr(expr)?;
-                self.env.set(name.clone(), val);
+                self.env.declare(name.clone(), val);
                 Ok(())
             }
-            Stmt::Assign(left, right, _) => {
+            Stmt::Assign(left, right, span) => {
                 let value = self.eval_expr(right)?;
                 match **left {
                     Expr::Variable(ref name, _) => {
-                        self.env.set(name.clone(), value);
+                        self.env.assign(name, value, span)?;
                     }
                     Expr::Index(ref base, ref index, span) => {
                         let base_value = self.eval_expr(base)?;
@@ -104,6 +254,26 @@ impl Interpreter {
                         });
                     }
                 }
+                Ok(())
+            }
+            Stmt::Input(prompt_opt, var, span) => {
+                if let Some(prompt) = prompt_opt {
+                    print!("{}", prompt);
+                    std::io::stdout().flush().map_err(InterpError::Io)?;
+                }
+                let mut input = String::new();
+                let bytes_read = std::io::stdin()
+                    .read_line(&mut input)
+                    .map_err(InterpError::Io)?;
+                if bytes_read == 0 {
+                    return Err(InterpError::Runtime {
+                        span: *span,
+                        message: "EOF reached while reading input".to_string(),
+                    });
+                }
+                let input = input.trim_end_matches(&['\n', '\r'][..]);
+                let value = crate::utils::parse(input);
+                self.env.declare(var.clone(), value);
                 Ok(())
             }
             Stmt::If(cond, then_block, else_block, _) => {
@@ -142,6 +312,70 @@ impl Interpreter {
                     }
                 }
                 self.loop_depth -= 1;
+                Ok(())
+            }
+            Stmt::For(var, start_expr, end_expr, step_expr, body, _) => {
+                let start_val = self.eval_expr(start_expr)?;
+                let end_val = self.eval_expr(end_expr)?;
+                let step_val = if let Some(step_expr) = step_expr {
+                    self.eval_expr(step_expr)?
+                } else {
+                    Value::Int(1)
+                };
+                // Check all values are numbers
+                let start = match start_val {
+                    Value::Int(i) => i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            span: start_expr.span(),
+                            message: "FOR start must be integer".to_string(),
+                        });
+                    }
+                };
+                let end = match end_val {
+                    Value::Int(i) => i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            span: end_expr.span(),
+                            message: "FOR end must be integer".to_string(),
+                        });
+                    }
+                };
+                let step = match step_val {
+                    Value::Int(i) => i,
+                    _ => {
+                        return Err(InterpError::Runtime {
+                            span: step_expr
+                                .as_ref()
+                                .map(|e| e.span())
+                                .unwrap_or(Span::dummy()),
+                            message: "FOR step must be integer".to_string(),
+                        });
+                    }
+                };
+                if step == 0 {
+                    return Err(InterpError::Runtime {
+                        span: step_expr
+                            .as_ref()
+                            .map(|e| e.span())
+                            .unwrap_or(Span::dummy()),
+                        message: "FOR step cannot be zero".to_string(),
+                    });
+                }
+                let mut current = start;
+                while (step > 0 && current <= end) || (step < 0 && current >= end) {
+                    self.env.declare(var.clone(), Value::Int(current));
+                    for stmt in body {
+                        self.execute_stmt(stmt)?;
+                        if self.return_value.is_some() || self.break_flag {
+                            break;
+                        }
+                    }
+                    if self.return_value.is_some() || self.break_flag {
+                        break;
+                    }
+                    current += step;
+                }
                 Ok(())
             }
             Stmt::Break(span) => {
@@ -208,6 +442,12 @@ impl Interpreter {
             }
             Expr::Call(name, args, span) => {
                 // Function call
+
+                if let Some(builtin_fn) = self.builtins.get(name) {
+                    let f = builtin_fn.clone();
+                    return f(self, args, span);
+                }
+
                 if let Some((params, body)) = self.functions.get(name).cloned() {
                     if args.len() != params.len() {
                         return Err(InterpError::Runtime {
@@ -224,7 +464,7 @@ impl Interpreter {
                     let mut child_env = self.env.child();
                     for (param, arg_expr) in params.iter().zip(args) {
                         let arg_val = self.eval_expr(arg_expr)?;
-                        child_env.set(param.clone(), arg_val);
+                        child_env.declare(param.clone(), arg_val);
                     }
                     let old_env = std::mem::replace(&mut self.env, child_env);
                     let old_return = self.return_value.take();

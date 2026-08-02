@@ -2,7 +2,7 @@
 
 use crate::interpreter::Interpreter;
 use crate::parser::Parser;
-use crate::parser::lexer::Lexer;
+use crate::parser::lexer::{Lexer, TokenKind};
 use crate::preprocessor::preprocess_file;
 use colored::Colorize;
 use rustyline::DefaultEditor;
@@ -209,10 +209,10 @@ fn block_balance(lines: &[String]) -> i32 {
         if let Ok(tokens) = Lexer::tokenize(line) {
             for token in tokens {
                 match token.kind {
-                    crate::parser::lexer::TokenKind::If
-                    | crate::parser::lexer::TokenKind::While
-                    | crate::parser::lexer::TokenKind::Func => balance += 1,
-                    crate::parser::lexer::TokenKind::End => balance -= 1,
+                    TokenKind::If | TokenKind::While | TokenKind::For | TokenKind::Func => {
+                        balance += 1
+                    }
+                    TokenKind::End | TokenKind::Next => balance -= 1,
                     _ => (),
                 }
             }
