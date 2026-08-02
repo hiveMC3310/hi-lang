@@ -41,5 +41,6 @@ pub fn type_name(v: &Value) -> &'static str {
         Value::List(_) => "list",
         Value::File(_) => "file",
         Value::Dict(_) => "dict",
+        Value::Nil => "nil",
     }
 }

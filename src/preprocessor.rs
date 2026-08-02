@@ -4,6 +4,7 @@
 //! by inlining the contents of the referenced file. Detects and prevents
 //! cyclic imports and duplicate imports.
 
+use crate::ast::Span;
 use crate::error::{InterpError, InterpResult};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -72,8 +73,13 @@ fn process_file(
 
         // Try to parse an `IMPORT` directive.
         if let Some(import_path_str) = parse_import(code_part, line_num).map_err(|e| match e {
-            InterpError::Syntax { line, message } => InterpError::Syntax {
-                line,
+            InterpError::Syntax { span, message } => InterpError::Syntax {
+                span: Span {
+                    start_line: span.start_line,
+                    start_col: span.start_col,
+                    end_line: span.end_line,
+                    end_col: span.end_col,
+                },
                 message: format!("{} (in file {})", message, abs_path.display()),
             },
             _ => e,
@@ -83,7 +89,12 @@ fn process_file(
                 return Err(InterpError::ImportError {
                     path: import_path_str.clone(),
                     message: "Imported file must have .hi extension".to_string(),
-                    line: line_num,
+                    span: Span {
+                        start_line: line_num,
+                        start_col: 1,
+                        end_line: line_num,
+                        end_col: 1,
+                    },
                 });
             }
 
@@ -93,7 +104,6 @@ fn process_file(
                 .unwrap_or(Path::new("."))
                 .join(&import_path_str);
 
-            // Recursively process the imported file.
             // Recursively process the imported file.
             if let Err(e) = process_file(&import_path, output, imported, stack) {
                 let context_msg = format!(
@@ -105,7 +115,12 @@ fn process_file(
                 return Err(InterpError::ImportError {
                     path: import_path_str,
                     message: context_msg,
-                    line: line_num,
+                    span: Span {
+                        start_line: line_num,
+                        start_col: 1,
+                        end_line: line_num,
+                        end_col: 1,
+                    },
                 });
             }
         } else {
@@ -134,7 +149,12 @@ fn parse_import(line: &str, line_num: usize) -> InterpResult<Option<String>> {
         Ok(Some(path))
     } else {
         Err(InterpError::Syntax {
-            line: line_num,
+            span: Span {
+                start_line: line_num,
+                start_col: 1,
+                end_line: line_num,
+                end_col: 1,
+            },
             message: "IMPORT must be followed by a quoted filename, e.g. IMPORT \"lib.hi\""
                 .to_string(),
         })

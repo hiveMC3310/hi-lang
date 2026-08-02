@@ -42,6 +42,7 @@ pub enum Value {
     List(Rc<RefCell<Vec<Value>>>),
     File(Rc<RefCell<FileHandle>>),
     Dict(Rc<RefCell<HashMap<Value, Value>>>),
+    Nil,
 }
 
 impl Eq for Value {}
@@ -53,6 +54,7 @@ impl PartialEq for Value {
             (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Nil, Value::Nil) => true,
             (Value::List(a), Value::List(b)) => {
                 let a_borrow = a.borrow();
                 let b_borrow = b.borrow();
@@ -88,7 +90,7 @@ impl std::hash::Hash for Value {
             Value::Float(f) => f.to_bits().hash(state),
             Value::String(s) => s.hash(state),
             Value::Bool(b) => b.hash(state),
-
+            Value::Nil => ().hash(state),
             Value::List(_) | Value::Dict(_) | Value::File(_) => {
                 panic!("attempted to hash non‑hashable value")
             }
@@ -104,6 +106,7 @@ impl Value {
             Value::Int(i) => *i != 0,
             Value::Float(f) => *f != 0.0,
             Value::String(s) => !s.is_empty(),
+            Value::Nil => false,
             Value::List(l) => !l.borrow().is_empty(),
             Value::Dict(d) => !d.borrow().is_empty(),
             Value::File(_) => false,
@@ -125,6 +128,7 @@ impl fmt::Display for Value {
             Value::Float(fl) => write!(f, "{}", fl),
             Value::String(s) => write!(f, "{}", s),
             Value::Bool(b) => write!(f, "{}", b),
+            Value::Nil => write!(f, "nil"),
             Value::List(l) => {
                 let vec = l.borrow();
                 write!(f, "[")?;
