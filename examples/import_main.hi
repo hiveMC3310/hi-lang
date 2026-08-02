@@ -1,9 +1,0 @@
-// Main file demonstrating IMPORT (v1.6.0+)
-
-IMPORT "import_utils.hi"
-
-CALL greet
-PRINT "Global message: " GLOBAL_MESSAGE
-
-// We can also define more code here
-PRINT "Main program finished."
