@@ -1,58 +1,37 @@
-// List operations (v1.4.0+)
+// Demonstrates list operations
 
-// Create a list
-LIST 1 2 3 4 5
-POP mylist
-PRINT "Original list: " mylist
+LET a = [10, 20, 30, 40]
+PRINT "Original list: ", a
 
-// Length
-LEN mylist
-POP len
-PRINT "Length: " len
+PRINT "Length: ", len(a)
+PRINT "First element: ", a[0]
+PRINT "Last element: ", a[3]
 
-// Index access
-INDEX mylist 2
-POP third
-PRINT "Element at index 2: " third
-
-// Append (creates new list or modifies in place with COW)
-APPEND mylist 42
-POP newlist
-PRINT "After append: " newlist
+// Append
+LET b = append(a, 50)
+PRINT "After append 50: ", b
 
 // Insert
-INSERT newlist 2 99
-POP inserted
-PRINT "After insert at index 2: " inserted
+LET c = insert(b, 2, 25)
+PRINT "After insert 25 at index 2: ", c
 
 // Remove
-REMOVE inserted 1
-POP removed
-PRINT "After remove at index 1: " removed
+LET d = remove(c, 3)
+PRINT "After remove index 3: ", d
 
 // Slice
-SLICE removed 1 3
-POP sliced
-PRINT "Slice (1,3): " sliced
+LET e = slice(d, 1, 3)
+PRINT "Slice from 1 length 3: ", e
 
 // Reverse
-REVERSE removed
-POP rev
-PRINT "Reversed: " rev
+LET f = reverse(d)
+PRINT "Reversed: ", f
 
-// IndexOf
-INDEXOF rev 99
-POP idx
-PRINT "Index of 99: " idx
+// Search
+PRINT "Index of 30: ", indexof(d, 30)
+PRINT "Contains 25? ", contains(d, 25)
+PRINT "Contains 99? ", contains(d, 99)
 
-INDEXOF rev 999
-POP not_found
-PRINT "Index of 999: " not_found
-
-// Contains
-CONTAINS rev 3
-POP has
-PRINT "Contains 3: " has
-
-// The original list is unchanged (COW)
-PRINT "Original list still: " mylist
+// List concatenation
+LET g = concat([1, 2], [3, 4])
+PRINT "Concat [1,2] and [3,4]: ", g

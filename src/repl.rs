@@ -1,8 +1,9 @@
 //! Read-Eval-Print Loop (REPL) for interactive Hi sessions.
 
 use crate::interpreter::Interpreter;
+use crate::parser::Parser;
+use crate::parser::lexer::{Lexer, TokenKind};
 use crate::preprocessor::preprocess_file;
-use crate::tokenizer::Tokenizer;
 use colored::Colorize;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
@@ -12,17 +13,15 @@ use std::path::{Path, PathBuf};
 /// Starts the REPL loop.
 pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
     let mut rl = DefaultEditor::new()?;
-    let mut interpreter = Interpreter::new(vec![]);
+    let mut interpreter = Interpreter::new();
     let mut loaded_files: HashSet<PathBuf> = HashSet::new();
+    let mut buffer: Vec<String> = Vec::new();
 
     println!(
         "Hi REPL v{} — type :exit or :quit to quit",
         env!("CARGO_PKG_VERSION")
     );
-    println!("Enter commands (multi-line blocks like IF/WHILE/FUNC are supported)");
     println!();
-
-    let mut buffer: Vec<String> = Vec::new();
 
     loop {
         let balance = block_balance(&buffer);
@@ -48,24 +47,30 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
         if trimmed == ":clear" {
-            interpreter.clear_state();
+            interpreter = Interpreter::new();
             loaded_files.clear();
+            buffer.clear();
             continue;
         }
         if trimmed == ":vars" {
-            for (k, v) in &interpreter.globals {
+            for (k, v) in &interpreter.env.vars {
                 println!("{} = {}", k, v);
+            }
+            if !interpreter.functions.is_empty() {
+                println!("Functions:");
+                for (name, (params, _)) in &interpreter.functions {
+                    println!("  {}({})", name, params.join(", "));
+                }
             }
             continue;
         }
         if trimmed == ":stack" {
-            println!("Stack: {:?}", interpreter.stack);
+            println!("Stack is not used in AST mode.");
             continue;
         }
 
         if trimmed.starts_with(":load") {
             // Extract the argument after `:load` – may be quoted.
-
             let arg = trimmed[5..].trim();
             let path_str = parse_load_arg(arg);
             let path = Path::new(&path_str);
@@ -89,36 +94,65 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
             match preprocess_file(path) {
                 Ok(lines) => {
                     loaded_files.insert(abs_path.clone());
-                    let start_line = interpreter.lines.len();
-                    interpreter.lines.extend(lines);
-                    // Rebuild jump maps after adding lines.
-                    if let Err(e) = interpreter.build_maps() {
-                        eprintln!("{}", e);
-                        continue;
-                    }
-                    // Execute the newly added lines.
-                    if let Err(e) = interpreter.run_from(start_line) {
-                        eprintln!("{} {}", "error:".red().bold(), e);
-                        if let Some(line) = e.line() {
-                            eprintln!(
-                                "{} {} {} {}",
-                                "at line".yellow().bold(),
-                                line.to_string().cyan().bold(),
-                                "in file".yellow().bold(),
-                                path_str.cyan().bold()
-                            );
+                    let source = lines.join("\n");
+                    match Lexer::tokenize(&source) {
+                        Ok(tokens) => {
+                            let mut parser = Parser::new(&tokens);
+                            match parser.parse() {
+                                Ok(program) => {
+                                    if let Err(e) = interpreter.run(&program) {
+                                        eprintln!("{} {}", "error:".red().bold(), e);
+                                        if let Some(span) = e.span() {
+                                            eprintln!(
+                                                "{} {} {} {} {}",
+                                                "at".yellow().bold(),
+                                                format!("line {}", span.start_line).cyan().bold(),
+                                                "column".yellow().bold(),
+                                                span.start_col.to_string().cyan().bold(),
+                                                format!("in file {}", path_str).yellow().bold()
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("{} {}", "parse error:".red().bold(), e);
+                                    if let Some(span) = e.span() {
+                                        eprintln!(
+                                            "{} {} {} {} {}",
+                                            "at".yellow().bold(),
+                                            format!("line {}", span.start_line).cyan().bold(),
+                                            "column".yellow().bold(),
+                                            span.start_col.to_string().cyan().bold(),
+                                            format!("in file {}", path_str).yellow().bold()
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("{} {}", "lex error:".red().bold(), e);
+                            if let Some(span) = e.span() {
+                                eprintln!(
+                                    "{} {} {} {} {}",
+                                    "at".yellow().bold(),
+                                    format!("line {}", span.start_line).cyan().bold(),
+                                    "column".yellow().bold(),
+                                    span.start_col.to_string().cyan().bold(),
+                                    format!("in file {}", path_str).yellow().bold()
+                                );
+                            }
                         }
                     }
                 }
                 Err(e) => {
                     eprintln!("{} {}", "error:".red().bold(), e);
-                    if let Some(line) = e.line() {
+                    if let Some(span) = e.span() {
                         eprintln!(
                             "{} {} {} {}",
-                            "at line".yellow().bold(),
-                            line.to_string().cyan().bold(),
-                            "in file".yellow().bold(),
-                            path_str.cyan().bold()
+                            "at".yellow().bold(),
+                            format!("line {}", span.start_line).cyan().bold(),
+                            "column".yellow().bold(),
+                            span.start_col.to_string().cyan().bold(),
                         );
                     }
                 }
@@ -131,12 +165,33 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
 
         // If the block is complete (balanced), execute it
         if block_balance(&buffer) == 0 {
-            let start_line = interpreter.lines.len();
-            interpreter.lines.extend(buffer.clone());
-
-            // Execute only the new lines
-            if let Err(e) = interpreter.run_from(start_line) {
-                eprintln!("{}", e);
+            let source = buffer.join("\n");
+            match Lexer::tokenize(&source) {
+                Ok(tokens) => {
+                    let mut parser = Parser::new(&tokens);
+                    match parser.parse() {
+                        Ok(program) => {
+                            if let Err(e) = interpreter.run(&program) {
+                                eprintln!("{}", e);
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Parse error: {}", e);
+                            if let Some(span) = e.span() {
+                                eprintln!(
+                                    "  at line {}, column {}",
+                                    span.start_line, span.start_col
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Lex error: {}", e);
+                    if let Some(span) = e.span() {
+                        eprintln!("  at line {}, column {}", span.start_line, span.start_col);
+                    }
+                }
             }
             buffer.clear();
         }
@@ -150,15 +205,15 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
 fn block_balance(lines: &[String]) -> i32 {
     let mut balance = 0;
     for line in lines {
-        if let Ok(tokens) = Tokenizer::tokenize(line, 0) {
-            if tokens.is_empty() {
-                continue;
-            }
-            let cmd = tokens[0].text.to_uppercase();
-            match cmd.as_str() {
-                "IF" | "WHILE" | "FUNC" => balance += 1,
-                "ENDIF" | "DO" | "ENDF" => balance -= 1,
-                _ => (),
+        if let Ok(tokens) = Lexer::tokenize(line) {
+            for token in tokens {
+                match token.kind {
+                    TokenKind::If | TokenKind::While | TokenKind::For | TokenKind::Func => {
+                        balance += 1
+                    }
+                    TokenKind::End | TokenKind::Next => balance -= 1,
+                    _ => (),
+                }
             }
         }
         if balance < 0 {

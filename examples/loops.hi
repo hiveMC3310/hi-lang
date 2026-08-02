@@ -1,0 +1,32 @@
+// Demonstrates WHILE and FOR loops
+
+// WHILE loop
+LET i = 0
+WHILE i < 5 DO
+    PRINT "i = ", i
+    i = i + 1
+END
+PRINT "Loop finished"
+
+// FOR loop with default step (1)
+PRINT "FOR loop 0 to 3:"
+FOR j = 0 TO 3 DO
+    PRINT "j = ", j
+NEXT
+
+// FOR loop with explicit step
+PRINT "FOR loop 10 to 0 step -2:"
+FOR k = 10 TO 0 DO
+    PRINT "k = ", k
+NEXT -2
+
+// Nested loops with BREAK
+PRINT "Nested loops with BREAK:"
+FOR x = 0 TO 2 DO
+    FOR y = 0 TO 2 DO
+        IF x == 1 AND y == 1 THEN
+            BREAK
+        END
+        PRINT "x=", x, " y=", y
+    NEXT
+NEXT

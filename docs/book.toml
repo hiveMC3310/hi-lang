@@ -1,0 +1,7 @@
+[book]
+title = "Hi Language Documentation"
+authors = ["hiveMC3310"]
+language = "en"
+
+[output.html]
+git-repository-url = "https://github.com/hiveMC3310/hi-lang"

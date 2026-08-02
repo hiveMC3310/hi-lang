@@ -1,1 +1,7 @@
-HELLO
+// Simple "Hello, World!" program
+
+PRINT "Hello, World!"
+
+// or just
+
+hello()

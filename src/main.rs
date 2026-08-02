@@ -1,15 +1,16 @@
 //! Entry point of the Hi interpreter.
 
-mod commands;
+mod ast;
 mod error;
 mod interpreter;
+mod parser;
 mod preprocessor;
 mod repl;
-mod tokenizer;
 mod utils;
 mod value;
 
 use crate::interpreter::Interpreter;
+use crate::parser::lexer::Lexer;
 use crate::preprocessor::preprocess_file;
 use anyhow::Result;
 use clap::Parser;
@@ -47,18 +48,23 @@ fn main() -> Result<()> {
 
     let root_path = Path::new(&filename);
     let processed_lines = preprocess_file(root_path)?;
-    let mut interpreter = Interpreter::new(processed_lines);
+    let source = processed_lines.join("\n");
+    let tokens = Lexer::tokenize(&source)?;
+    let mut parser = parser::Parser::new(&tokens);
+    let program = parser.parse()?;
+    let mut interpreter = Interpreter::new();
     interpreter.set_argv(args.arguments);
 
-    if let Err(e) = interpreter.run() {
+    if let Err(e) = interpreter.run(&program) {
         eprintln!("{} {}", "error:".red().bold(), e);
-        if let Some(line) = e.line() {
+        if let Some(span) = e.span() {
             eprintln!(
-                "{} {} {} {}",
-                "at line".yellow().bold(),
-                line.to_string().cyan().bold(),
-                "in file".yellow().bold(),
-                filename.cyan().bold()
+                "{} {} {} {} {}",
+                "at".yellow().bold(),
+                format!("line {}", span.start_line).cyan().bold(),
+                "column".yellow().bold(),
+                span.start_col.to_string().cyan().bold(),
+                format!("in file {}", filename).yellow().bold()
             );
         }
         std::process::exit(1);

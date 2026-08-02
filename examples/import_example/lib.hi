@@ -1,0 +1,13 @@
+// Library module with utility functions
+
+FUNC greet(name)
+    RET concat("Hello, ", name)
+END
+
+FUNC add(a, b)
+    RET a + b
+END
+
+FUNC multiply(a, b)
+    RET a * b
+END
