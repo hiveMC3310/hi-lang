@@ -114,6 +114,7 @@ impl<'a> Parser<'a> {
             TokenKind::Break => self.parse_break(),
             TokenKind::Print => self.parse_print(),
             TokenKind::Input => self.parse_input(),
+            TokenKind::Import => self.parse_import(),
             TokenKind::For => self.parse_for(),
             _ => {
                 let left = self.parse_expression()?;
@@ -294,6 +295,21 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Print(args, span))
     }
 
+    fn parse_import(&mut self) -> ParseResult<Stmt> {
+        let start = self.peek().span;
+        self.consume(TokenKind::Import)?;
+        let path = self.consume_string()?;
+        let alias = if self.peek_if(TokenKind::As) {
+            self.consume(TokenKind::As)?;
+            let ident = self.consume_ident()?;
+            Some(ident.0)
+        } else {
+            None
+        };
+        let span = start.merge(&self.tokens[self.pos - 1].span);
+        Ok(Stmt::Import(path, alias, span))
+    }
+
     // ---- Block: sequence of statements until END or Eof ----
     fn parse_block(&mut self, stop_kinds: &[TokenKind]) -> ParseResult<Block> {
         let mut stmts = Vec::new();
@@ -411,6 +427,16 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 if self.peek_if(TokenKind::LParen) {
                     self.parse_call(name.clone(), tok.span)
+                } else if self.peek_if(TokenKind::Colon) {
+                    self.consume(TokenKind::Colon)?;
+                    let func_ident = self.consume_ident()?;
+                    let func_name = func_ident.0;
+                    let span = tok.span.merge(&func_ident.1);
+                    if self.peek_if(TokenKind::LParen) {
+                        self.parse_call_module(name.clone(), func_name, span)
+                    } else {
+                        Ok(Expr::ModuleAccess(name.clone(), func_name, span))
+                    }
                 } else {
                     Ok(Expr::Variable(name.clone(), tok.span))
                 }
@@ -508,6 +534,29 @@ impl<'a> Parser<'a> {
         let span = start.merge(&end.span);
         Ok(Expr::Dict(pairs, span))
     }
+
+    fn parse_call_module(
+        &mut self,
+        module: String,
+        func: String,
+        name_span: Span,
+    ) -> ParseResult<Expr> {
+        self.consume(TokenKind::LParen)?;
+        let mut args = Vec::new();
+        if !self.peek_if(TokenKind::RParen) {
+            loop {
+                args.push(self.parse_expression()?);
+                if self.peek_if(TokenKind::Comma) {
+                    self.consume(TokenKind::Comma)?;
+                } else {
+                    break;
+                }
+            }
+        }
+        let rparen = self.consume(TokenKind::RParen)?;
+        let span = name_span.merge(&rparen.span);
+        Ok(Expr::CallModule(module, func, args, span))
+    }
 }
 
 #[cfg(test)]
@@ -553,6 +602,15 @@ mod tests {
                 args.iter().map(strip_spans_expr).collect(),
                 Span::dummy(),
             ),
+            Expr::CallModule(module, func, args, _) => Expr::CallModule(
+                module.clone(),
+                func.clone(),
+                args.iter().map(strip_spans_expr).collect(),
+                Span::dummy(),
+            ),
+            Expr::ModuleAccess(module, name, _) => {
+                Expr::ModuleAccess(module.clone(), name.clone(), Span::dummy())
+            }
         }
     }
 
@@ -602,6 +660,9 @@ mod tests {
                 Span::dummy(),
             ),
             Stmt::Expr(expr, _) => Stmt::Expr(strip_spans_expr(expr), Span::dummy()),
+            Stmt::Import(path, alias, _) => {
+                Stmt::Import(path.clone(), alias.clone(), Span::dummy())
+            }
         }
     }
 
@@ -1114,6 +1175,56 @@ mod tests {
                 }
             }
             _ => panic!("Expected division at top"),
+        }
+    }
+
+    #[test]
+    fn test_import() {
+        let prog = parse_normalized("IMPORT \"lib.hi\"");
+        match &prog.stmts[0] {
+            Stmt::Import(path, alias, _) => {
+                assert_eq!(path, "lib.hi");
+                assert!(alias.is_none());
+            }
+            _ => panic!("Expected Import statement"),
+        }
+    }
+
+    #[test]
+    fn test_import_as() {
+        let prog = parse_normalized("IMPORT \"lib.hi\" AS l");
+        match &prog.stmts[0] {
+            Stmt::Import(path, Some(alias), _) => {
+                assert_eq!(path, "lib.hi");
+                assert_eq!(alias, "l");
+            }
+            _ => panic!("Expected Import with alias"),
+        }
+    }
+
+    #[test]
+    fn test_module_access() {
+        let expr = parse_expr_normalized("m:sin(10)");
+        match expr {
+            Expr::CallModule(module, func, args, _) => {
+                assert_eq!(module, "m");
+                assert_eq!(func, "sin");
+                assert_eq!(args.len(), 1);
+                assert!(matches!(args[0], Expr::Int(10, _)));
+            }
+            _ => panic!("Expected CallModule"),
+        }
+    }
+
+    #[test]
+    fn test_module_variable() {
+        let expr = parse_expr_normalized("m:PI");
+        match expr {
+            Expr::ModuleAccess(module, var, _) => {
+                assert_eq!(module, "m");
+                assert_eq!(var, "PI");
+            }
+            _ => panic!("Expected ModuleAccess"),
         }
     }
 }

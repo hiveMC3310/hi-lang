@@ -43,5 +43,6 @@ pub fn type_name(v: &Value) -> &'static str {
         Value::Dict(_) => "dict",
         Value::Nil => "nil",
         Value::Function(_) => "function",
+        Value::Module(_) => "module",
     }
 }

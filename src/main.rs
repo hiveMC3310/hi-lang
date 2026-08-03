@@ -3,15 +3,14 @@
 mod ast;
 mod error;
 mod interpreter;
+mod modules;
 mod parser;
-mod preprocessor;
 mod repl;
 mod utils;
 mod value;
 
 use crate::interpreter::Interpreter;
 use crate::parser::lexer::Lexer;
-use crate::preprocessor::preprocess_file;
 use anyhow::Result;
 use clap::Parser;
 use colored::*;
@@ -47,13 +46,13 @@ fn main() -> Result<()> {
     }
 
     let root_path = Path::new(&filename);
-    let processed_lines = preprocess_file(root_path)?;
-    let source = processed_lines.join("\n");
+    let source = std::fs::read_to_string(root_path)?;
     let tokens = Lexer::tokenize(&source)?;
     let mut parser = parser::Parser::new(&tokens);
     let program = parser.parse()?;
     let mut interpreter = Interpreter::new();
     interpreter.set_argv(args.arguments);
+    interpreter.current_file = Some(root_path.to_path_buf());
 
     if let Err(e) = interpreter.run(&program) {
         eprintln!("{} {}", "error:".red().bold(), e);

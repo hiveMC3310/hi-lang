@@ -22,6 +22,7 @@ LET x = 5   // This is also a comment
 - **Variable names** are **case‑sensitive** – `myVar` and `myvar` are different.
 - **Boolean literals** `TRUE` and `FALSE` are case‑sensitive (must be uppercase).
 - **Built‑in function names** are **lowercase** (e.g., `len`, `append`, `sin`).
+- **Module names** (like `math`, `strings`, `io`) are **lowercase** and reserved for built‑in modules.
 
 ### Tokens and Separators
 
@@ -31,6 +32,7 @@ separators:
 - Spaces, tabs, newlines
 - `(`, `)`, `[`, `]`, `{`, `}`, `,`
 - Operators: `+`, `-`, `*`, `/`, `%`, `^`, `=`, `==`, `!=`, `<`, `<=`, `>`, `>=`
+- Colon `:` is used for module access.
 
 ---
 
@@ -48,6 +50,7 @@ Hi is **dynamically typed** – variables can hold values of any type, and types
 | Dict     | `{"name" = "Alice", "age" = 30}`    | Key‑value map; keys must be hashable (int, float, string, bool). |
 | Function | `double`, `factorial`               | Functions are first‑class values (stored in variables).          |
 | File     | returned by `open()`                | File handle for I/O operations.                                  |
+| Module   | `math`, `strings`, `io`             | A namespace containing variables and functions (see Modules).    |
 | Nil      | `nil`                               | Represents “no value” (e.g., return of `put()`).                 |
 
 ### String Escapes
@@ -149,6 +152,17 @@ append(list, 42)    // returns new list
 
 If a function takes no arguments, you can call it with empty parentheses, e.g., `keys()` (though most built‑ins take
 arguments).
+
+### Module Access
+
+Use a colon `:` to access variables and functions inside a module:
+
+```hi
+math:PI              // variable
+strings:split("a,b", ",")   // function call
+```
+
+The module name must be a variable that holds a module value (see [Import Directives](#import-directives)).
 
 ### Indexing
 
@@ -332,12 +346,65 @@ This is useful for function calls that have side effects.
 
 ---
 
+## Import Directives
+
+The `IMPORT` directive loads a module (either a built‑in module or a user‑defined `.hi` file) and makes its contents
+available in the current scope.
+
+```hi
+IMPORT "path/to/file.hi"        // inline all contents (global)
+IMPORT "path/to/file.hi" AS name // create a module variable 'name'
+IMPORT "math"                   // inline built‑in module 'math'
+IMPORT "strings" AS s           // create alias 's' for built‑in strings
+```
+
+- **With `AS`**: creates a variable (module) with the given name. You can then access its variables and functions using
+  `name:var` and `name:func(...)`.
+- **Without `AS`**: all functions and variables of the module are **inlined** into the current environment. For built‑in
+  modules, this adds their functions to the global function namespace and their constants to global variables. For user
+  modules, all exported (`LET` declared) variables and functions become directly accessible.
+
+- **Built‑in modules** (`math`, `strings`, `io`) are always available as global variables with their original names (
+  even
+  if you import them without `AS`). Importing them without `AS` additionally adds their functions to the global function
+  namespace, allowing you to call `sin()` directly instead of `math:sin()`.
+
+- **User modules** are resolved relative to the current file (or the current working directory in the REPL). Only files
+  with the `.hi` extension are allowed.
+
+- **Cyclic imports** are detected and prevented at runtime, with a clear error message.
+
+- **Caching**: Each module is loaded and evaluated only once; subsequent imports reuse the cached module instance.
+
+### Examples
+
+```hi
+// Inline built‑in math functions
+IMPORT "math"
+LET x = sin(PI / 2)   // sin and PI are now global
+
+// Use built‑in strings as a module
+IMPORT "strings" AS s
+LET parts = s:split("a,b,c", ",")
+
+// Import a user module and create a namespace
+IMPORT "lib.hi" AS lib
+lib:some_function()
+
+// Inline a user module (its variables and functions become global)
+IMPORT "helpers.hi"
+helper_func()
+```
+
+---
+
 ## Boolean Coercion
 
 In conditional contexts (`IF`, `WHILE`, `AND`, `OR`, `NOT`), values are converted to booleans as follows:
 
 - `FALSE`, `0`, `0.0`, empty string `""`, empty list `[]`, empty dict `{}`, and `nil` are **false**.
-- All other values are **true** (including non‑zero numbers, non‑empty strings/lists/dicts, functions, file handles).
+- All other values are **true** (including non‑zero numbers, non‑empty strings/lists/dicts, functions, file handles,
+  modules).
 
 This allows you to use expressions directly in conditions:
 
@@ -349,73 +416,59 @@ IF list THEN PRINT "List is non‑empty" END
 
 ---
 
-## Import Directives
-
-The `IMPORT` directive is processed **before** the interpreter runs. It is not a statement, but a preprocessor
-instruction.
-
-```hi
-IMPORT "path/to/file.hi"
-```
-
-- Paths are resolved relative to the current file.
-- Only `.hi` extensions are allowed.
-- Cyclic imports are detected and prevented.
-- Each file is imported only once.
-
-Imported code is inlined at the position of the `IMPORT` directive.
-
----
-
 ## Complete Example
 
 ```hi
-// A simple program demonstrating syntax
+// A program demonstrating syntax and modules
 
 LET greeting = "Hello"
 LET name = "World"
 
 FUNC greet(person)
-    RET concat(greeting, ", ", person)
+    RET concat(greeting, ", ", person)  // concat is global
 END
 
 LET message = greet(name)
 PRINT message
 
-LET i = 0
-WHILE i < 3 DO
-    PRINT i
-    i = i + 1
-END
+// Using built‑in module
+IMPORT "strings" AS str
+LET words = str:split("one,two,three", ",")
+PRINT words
+
+// Inline math functions
+IMPORT "math"
+LET area = PI * 5 ^ 2
+PRINT "Area = ", area
 ```
 
 ---
 
 ## Summary of Keywords
 
-| Keyword  | Purpose                       |
-|----------|-------------------------------|
-| `LET`    | Variable declaration          |
-| `IF`     | Conditional start             |
-| `THEN`   | Start of IF body              |
-| `ELSE`   | Alternative branch            |
-| `END`    | End of IF, WHILE, FUNC        |
-| `WHILE`  | Loop start                    |
-| `DO`     | Start of WHILE body           |
-| `FOR`    | Numeric loop start            |
-| `TO`     | Range separator in FOR        |
-| `NEXT`   | End of FOR body (with step)   |
-| `FUNC`   | Function definition start     |
-| `RET`    | Return from function          |
-| `BREAK`  | Exit loop                     |
-| `PRINT`  | Output to console             |
-| `INPUT`  | Read from console             |
-| `TRUE`   | Boolean true                  |
-| `FALSE`  | Boolean false                 |
-| `AND`    | Logical AND                   |
-| `OR`     | Logical OR                    |
-| `NOT`    | Logical NOT                   |
-| `IMPORT` | Preprocessor import directive |
+| Keyword  | Purpose                     |
+|----------|-----------------------------|
+| `LET`    | Variable declaration        |
+| `IF`     | Conditional start           |
+| `THEN`   | Start of IF body            |
+| `ELSE`   | Alternative branch          |
+| `END`    | End of IF, WHILE, FUNC      |
+| `WHILE`  | Loop start                  |
+| `DO`     | Start of WHILE body         |
+| `FOR`    | Numeric loop start          |
+| `TO`     | Range separator in FOR      |
+| `NEXT`   | End of FOR body (with step) |
+| `FUNC`   | Function definition start   |
+| `RET`    | Return from function        |
+| `BREAK`  | Exit loop                   |
+| `PRINT`  | Output to console           |
+| `INPUT`  | Read from console           |
+| `TRUE`   | Boolean true                |
+| `FALSE`  | Boolean false               |
+| `AND`    | Logical AND                 |
+| `OR`     | Logical OR                  |
+| `NOT`    | Logical NOT                 |
+| `IMPORT` | Module import directive     |
 
 ---
 

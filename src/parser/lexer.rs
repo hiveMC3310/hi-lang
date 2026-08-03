@@ -20,6 +20,8 @@ pub enum TokenKind {
     Ret,
     Break,
     Print,
+    Import,
+    As,
     True,
     False,
 
@@ -53,6 +55,7 @@ pub enum TokenKind {
     LBracket, // [
     RBracket, // ]
     Comma,    // ,
+    Colon,    // :
 
     Eof,
 }
@@ -314,6 +317,8 @@ impl Lexer {
                     "RET" => TokenKind::Ret,
                     "BREAK" => TokenKind::Break,
                     "PRINT" => TokenKind::Print,
+                    "IMPORT" => TokenKind::Import,
+                    "AS" => TokenKind::As,
                     "TRUE" => TokenKind::True,
                     "FALSE" => TokenKind::False,
                     "AND" => TokenKind::And,
@@ -421,6 +426,13 @@ impl Lexer {
                 )),
                 ',' => tokens.push(Lexer::token(
                     TokenKind::Comma,
+                    start_line,
+                    start_col,
+                    line,
+                    col,
+                )),
+                ':' => tokens.push(Lexer::token(
+                    TokenKind::Colon,
                     start_line,
                     start_col,
                     line,

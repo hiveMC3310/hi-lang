@@ -8,6 +8,29 @@ shown.
 
 ---
 
+## Modules and Namespaces
+
+Hi provides several **built‑in modules** that group related functions and constants. These modules are always available
+as global variables:
+
+- `math` – mathematical functions and constants (`PI`, `E`, `sin`, `cos`, etc.)
+- `strings` – string‑specific functions (`split`, `join`, `upper`, `lower`, etc.)
+- `io` – file I/O functions (`open`, `read`, `write`, `close`, etc.)
+
+You can access their members using colon notation:
+
+```hi
+LET x = math:sin(math:PI / 2)
+LET parts = strings:split("a,b,c", ",")
+LET file = io:open("data.txt", "r")
+```
+
+Alternatively, you can **import** a module to inline its functions into the global namespace (
+see [Import Directives](syntax.md#import-directives)). For example, `IMPORT "math"` allows you to call `sin()` directly
+without the `math:` prefix.
+
+---
+
 ## Copy‑on‑Write (COW) for Lists
 
 Many list‑modifying operations (`append`, `insert`, `remove`, `reverse`) use **copy‑on‑write** semantics. This means:
@@ -40,6 +63,8 @@ Dictionaries **do not** use COW – they are always mutated in place (they are m
 
 ## String Functions
 
+Many string functions are available both as global functions (after importing `strings`) and via the `strings:` module.
+
 ### `len(s)`
 
 Returns the length of a string (or list/dict – see generic functions).
@@ -53,83 +78,113 @@ PRINT len("hello")   // 5
 
 ### `split(s, delimiter)`
 
-Splits a string into a list of substrings using `delimiter`.
+Splits a string into a list of substrings using `delimiter`.  
+(Module: `strings:split`)
 
 - **Arguments:** `s` – string, `delimiter` – string
 - **Returns:** list of strings
 
 ```hi
-LET parts = split("a,b,c", ",")
+LET parts = strings:split("a,b,c", ",")
 PRINT parts   // ["a", "b", "c"]
 ```
 
-### `concat(a, b)`
+### `join(delimiter, list)`
 
-Concatenates two strings (or two lists – see generic functions).
+Joins a list of strings with `delimiter` between each element.  
+(Module: `strings:join`)
 
-- **Arguments:** `a` – string, `b` – string
+- **Arguments:** `delimiter` – string, `list` – list of strings
 - **Returns:** string
+- Throws if `list` contains non‑string elements.
 
 ```hi
-PRINT concat("Hello", " World")   // "Hello World"
+LET words = ["Hello", "World", "!"]
+LET sentence = strings:join(" ", words)
+PRINT sentence   // "Hello World !"
+```
+
+### `concat(...)`
+
+Concatenates **any number** of strings (or lists) of the same type.  
+If arguments are strings, returns a string. If arguments are lists, returns a new list (COW).  
+All arguments must be of the same type (all strings or all lists).  
+Throws if types are mixed.
+
+- **Arguments:** two or more strings, or two or more lists
+- **Returns:** string or list
+
+```hi
+PRINT concat("Hello", " ", "World")   // "Hello World"
+LET a = [1, 2]
+LET b = [3, 4]
+LET c = concat(a, b, [5, 6])
+PRINT c   // [1, 2, 3, 4, 5, 6]
 ```
 
 ### `replace(s, old, new)`
 
-Replaces all occurrences of `old` with `new` in string `s`.
+Replaces all occurrences of `old` with `new` in string `s`.  
+(Module: `strings:replace`)
 
 - **Arguments:** `s` – string, `old` – string, `new` – string
 - **Returns:** string
 
 ```hi
-PRINT replace("Hello World", "World", "Hi")   // "Hello Hi"
+PRINT strings:replace("Hello World", "World", "Hi")   // "Hello Hi"
 ```
 
 ### `substr(s, start, length)`
 
-Extracts a substring from `s` starting at `start` (0‑based) with given `length`.
+Extracts a substring from `s` starting at `start` (0‑based) with given `length`.  
+(Module: `strings:substr`)
 
 - **Arguments:** `s` – string, `start` – integer, `length` – integer (non‑negative)
 - **Returns:** string
 
 ```hi
-PRINT substr("Hello", 1, 3)   // "ell"
+PRINT strings:substr("Hello", 1, 3)   // "ell"
 ```
 
 ### `starts(s, prefix)`
 
-Returns `TRUE` if `s` starts with `prefix`.
-
-- **Arguments:** `s` – string, `prefix` – string
-- **Returns:** boolean
+Returns `TRUE` if `s` starts with `prefix`.  
+(Module: `strings:starts`)
 
 ### `ends(s, suffix)`
 
-Returns `TRUE` if `s` ends with `suffix`.
+Returns `TRUE` if `s` ends with `suffix`.  
+(Module: `strings:ends`)
 
 ### `upper(s)`
 
-Converts `s` to uppercase.
+Converts `s` to uppercase.  
+(Module: `strings:upper`)
 
 ### `lower(s)`
 
-Converts `s` to lowercase.
+Converts `s` to lowercase.  
+(Module: `strings:lower`)
 
 ### `trim(s)`
 
-Removes leading and trailing whitespace from `s`.
+Removes leading and trailing whitespace from `s`.  
+(Module: `strings:trim`)
 
 ### `reverse(s)`
 
-Reverses the characters in `s` (also works for lists).
+Reverses the characters in `s` (also works for lists).  
+(Module: `strings:reverse` – available globally as `reverse`)
 
 ### `indexof(s, substring)`
 
-Returns the first index of `substring` in `s`, or `-1` if not found.
+Returns the first index of `substring` in `s`, or `-1` if not found.  
+(Module: `strings:indexof` – available globally as `indexof`)
 
 ### `contains(s, substring)`
 
-Returns `TRUE` if `s` contains `substring` (works for lists/dicts too – see generic functions).
+Returns `TRUE` if `s` contains `substring` (works for lists/dicts too – see generic functions).  
+(Module: `strings:contains` – available globally as `contains`)
 
 ---
 
@@ -270,9 +325,9 @@ PRINT get(d, "age")    // nil
 
 ## File I/O Functions
 
-All file functions use **file handles** returned by `open()`.
+All file functions use **file handles** returned by `open()`. They are available in the `io` module.
 
-### `open(path, mode)`
+### `io:open(path, mode)`
 
 Opens a file and returns a file handle.
 
@@ -280,34 +335,34 @@ Opens a file and returns a file handle.
 - Returns a file handle (type `File`).
 
 ```hi
-LET f = open("data.txt", "r")
+LET f = io:open("data.txt", "r")
 ```
 
-### `close(file)`
+### `io:close(file)`
 
 Closes the file handle (flushes writes if needed). Returns `nil`.
 
-### `read(file)`
+### `io:read(file)`
 
 Reads the entire remaining content of the file as a string. Returns string.
 
 ```hi
-LET content = read(f)
+LET content = io:read(f)
 ```
 
-### `readln(file)`
+### `io:readln(file)`
 
 Reads one line (including newline if present). Returns string. At EOF, returns an empty string and sets EOF flag.
 
-### `write(file, value)`
+### `io:write(file, value)`
 
 Writes the string representation of `value` to the file (without newline). Returns `nil`.
 
-### `writeln(file, value)`
+### `io:writeln(file, value)`
 
 Writes `value` followed by a newline. Returns `nil`.
 
-### `eof(file)`
+### `io:eof(file)`
 
 Returns `TRUE` if the end of the file has been reached (or file is not open for reading). Returns boolean.
 
@@ -315,39 +370,39 @@ Returns `TRUE` if the end of the file has been reached (or file is not open for 
 
 ## Mathematical Functions
 
-All math functions expect a numeric argument (integer or float) and return a float, except `rand()` which returns an
-integer.
+All math functions are in the `math` module and expect a numeric argument (integer or float) and return a float, except
+`rand()` which returns an integer.
 
-### `sin(x)`, `cos(x)`, `tan(x)`, `asin(x)`, `acos(x)`, `atan(x)`
+### `math:PI`, `math:E`
+
+Constants.
+
+### `math:sin(x)`, `math:cos(x)`, `math:tan(x)`, `math:asin(x)`, `math:acos(x)`, `math:atan(x)`
 
 Trigonometric functions. Input in radians. `asin` and `acos` require `-1 ≤ x ≤ 1`.
 
-### `sqrt(x)`
+### `math:sqrt(x)`
 
 Square root; `x ≥ 0`.
 
-### `torad(degrees)`, `todeg(radians)`
+### `math:torad(degrees)`, `math:todeg(radians)`
 
 Convert between degrees and radians.
 
-### `exp(x)` – eˣ, `log(x)` – natural logarithm (x > 0), `log2(x)`, `log10(x)`
+### `math:exp(x)` – eˣ, `math:log(x)` – natural logarithm (x > 0), `math:log2(x)`, `math:log10(x)`
 
-### `ceil(x)`, `floor(x)`, `round(x)` – rounding to nearest integer (as float).
+### `math:ceil(x)`, `math:floor(x)`, `math:round(x)` – rounding to nearest integer (as float).
 
-### `abs(x)` – absolute value.
+### `math:abs(x)` – absolute value.
 
-### `rand(start, end)`
+### `math:rand(start, end)`
 
 Returns a random integer between `start` and `end` (inclusive). Both arguments must be integers, `start ≤ end`.
 
 ```hi
-LET r = rand(1, 10)
+LET r = math:rand(1, 10)
 PRINT r   // random number 1..10
 ```
-
-### Constants
-
-The interpreter predefines two global floating‑point constants: `PI` and `E`.
 
 ---
 
@@ -373,7 +428,7 @@ Converts a number or string to a float.
 ### `typeof(value)`
 
 Returns a string with the type name of `value`. Possible names: `"integer"`, `"float"`, `"string"`, `"boolean"`,
-`"list"`, `"dict"`, `"file"`, `"function"`, `"nil"`.
+`"list"`, `"dict"`, `"file"`, `"function"`, `"nil"`, `"module"`.
 
 ```hi
 LET t = typeof(42)
@@ -403,7 +458,7 @@ Some functions work with multiple types:
 
 - `len` – works on strings, lists, dicts.
 - `contains` – works on strings (substring), lists (element), dicts (key).
-- `concat` – works on two strings or two lists.
+- `concat` – works on any number of strings or any number of lists (not mixed).
 - `reverse` – works on strings and lists.
 
 For `contains`, the second argument must match the type: for strings, a string; for lists, any value; for dicts, a
@@ -421,11 +476,21 @@ types, a runtime error is raised with a descriptive message.
 ## Examples
 
 ```hi
-// Strings
+// Strings (using module)
+IMPORT "strings" AS str
 LET s = "  Hello World!  "
-PRINT trim(s)                 // "Hello World!"
-PRINT upper(s)                // "  HELLO WORLD!  "
-PRINT replace(s, "World", "Hi") // "  Hello Hi!  "
+PRINT str:trim(s)                 // "Hello World!"
+PRINT str:upper(s)                // "  HELLO WORLD!  "
+PRINT str:replace(s, "World", "Hi") // "  Hello Hi!  "
+
+// Using global functions (after importing strings)
+IMPORT "strings"
+PRINT trim("  test  ")            // "test"
+PRINT concat("Hello", " ", "World") // "Hello World"
+
+// Join
+LET words = ["a", "b", "c"]
+PRINT str:join(", ", words)        // "a, b, c"
 
 // Lists
 LET a = [10, 20, 30]
@@ -444,9 +509,10 @@ PRINT contains(user, "age")   // TRUE
 remove(user, "age")
 PRINT user                    // {"name"="Bob", "city"="Paris"}
 
-// Math
-PRINT sin(PI / 2)             // 1.0
-PRINT rand(1, 6)              // random integer 1..6
+// Math (after import)
+IMPORT "math"
+PRINT math:sin(math:PI / 2)   // 1.0
+PRINT math:rand(1, 6)         // random integer 1..6
 
 // Type info
 PRINT typeof(TRUE)            // "boolean"

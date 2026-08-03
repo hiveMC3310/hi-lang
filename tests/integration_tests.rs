@@ -2,7 +2,6 @@ use hi_interpreter::error::InterpResult;
 use hi_interpreter::interpreter::Interpreter;
 use hi_interpreter::parser::Parser;
 use hi_interpreter::parser::lexer::Lexer;
-use hi_interpreter::preprocessor::preprocess_file;
 use std::fs::File;
 use std::io::{Read, Write};
 use stdio_override::StdoutOverride;
@@ -272,35 +271,36 @@ fn test_functions() -> Result<(), Box<dyn std::error::Error>> {
 #[test]
 fn test_string_methods() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
+        IMPORT "strings" AS strings
         LET s = "Hello, World!"
         PRINT "len=", len(s)
 
-        LET parts = split(s, ", ")
+        LET parts = strings:split(s, ", ")
         PRINT "split0=", parts[0]
         PRINT "split1=", parts[1]
 
         LET concat_str = concat("Hello", "World")
         PRINT "concat=", concat_str
 
-        LET replaced = replace("Hello World", "World", "Hi")
+        LET replaced = strings:replace("Hello World", "World", "Hi")
         PRINT "replace=", replaced
 
-        LET substr = substr("Hello", 1, 3)
+        LET substr = strings:substr("Hello", 1, 3)
         PRINT "substr=", substr
 
-        LET starts = starts("Hello", "He")
+        LET starts = strings:starts("Hello", "He")
         PRINT "starts=", starts
 
-        LET ends = ends("Hello", "lo")
+        LET ends = strings:ends("Hello", "lo")
         PRINT "ends=", ends
 
-        LET upper = upper("hello")
+        LET upper = strings:upper("hello")
         PRINT "upper=", upper
 
-        LET lower = lower("HELLO")
+        LET lower = strings:lower("HELLO")
         PRINT "lower=", lower
 
-        LET trimmed = trim("  hello  ")
+        LET trimmed = strings:trim("  hello  ")
         PRINT "trim=", trimmed
 
         LET rev = reverse("abc")
@@ -468,18 +468,19 @@ fn test_io() -> Result<(), Box<dyn std::error::Error>> {
 
     let code = format!(
         r#"
-        LET f = open("{}", "w")
-        writeln(f, "Hello")
-        writeln(f, "World")
-        close(f)
+        IMPORT "io" AS io
+        LET f = io:open("{}", "w")
+        io:writeln(f, "Hello")
+        io:writeln(f, "World")
+        io:close(f)
 
-        LET f2 = open("{}", "r")
-        LET line1 = readln(f2)
-        LET line2 = readln(f2)
-        LET eof1 = eof(f2)
-        LET line3 = readln(f2)
-        LET eof2 = eof(f2)
-        close(f2)
+        LET f2 = io:open("{}", "r")
+        LET line1 = io:readln(f2)
+        LET line2 = io:readln(f2)
+        LET eof1 = io:eof(f2)
+        LET line3 = io:readln(f2)
+        LET eof2 = io:eof(f2)
+        io:close(f2)
 
         PRINT "line1=", line1
         PRINT "line2=", line2
@@ -487,9 +488,9 @@ fn test_io() -> Result<(), Box<dyn std::error::Error>> {
         PRINT "line3=", line3
         PRINT "eof2=", eof2
 
-        LET f3 = open("{}", "r")
-        LET content = read(f3)
-        close(f3)
+        LET f3 = io:open("{}", "r")
+        LET content = io:read(f3)
+        io:close(f3)
         PRINT "content=", content
         "#,
         path_str, path_str, path_str
@@ -506,46 +507,6 @@ fn test_io() -> Result<(), Box<dyn std::error::Error>> {
         output.contains("content=Hello\nWorld\n") || output.contains("content=Hello\r\nWorld\r\n")
     );
     result?;
-    Ok(())
-}
-
-// ---------- IMPORT ----------
-#[test]
-fn test_import() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = TempDir::new()?;
-    let main_path = dir.path().join("main.hi");
-    let lib_path = dir.path().join("lib.hi");
-
-    // Create lib.hi – use `concat` for string concatenation
-    {
-        let mut f = File::create(&lib_path)?;
-        writeln!(f, "FUNC greet(name)")?;
-        writeln!(f, "    RET concat(\"Hello, \", name)")?;
-        writeln!(f, "END")?;
-    }
-
-    // Create main.hi
-    {
-        let mut f = File::create(&main_path)?;
-        writeln!(f, "IMPORT \"lib.hi\"")?;
-        writeln!(f, "LET msg = greet(\"World\")")?;
-        writeln!(f, "PRINT msg")?;
-    }
-
-    let processed = preprocess_file(&main_path)?;
-    let source = processed.join("\n");
-    let tokens = Lexer::tokenize(&source)?;
-    let mut parser = Parser::new(&tokens);
-    let program = parser.parse()?;
-    let mut interpreter = Interpreter::new();
-
-    let temp_out = NamedTempFile::new()?;
-    let _guard = StdoutOverride::from_file(temp_out.path())?;
-    interpreter.run(&program)?;
-    drop(_guard);
-    let mut content = String::new();
-    temp_out.reopen()?.read_to_string(&mut content)?;
-    assert!(content.contains("Hello, World"));
     Ok(())
 }
 
@@ -584,61 +545,23 @@ fn test_break_outside_loop() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn test_invalid_import_extension() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = TempDir::new()?;
-    let main_path = dir.path().join("main.hi");
-    {
-        let mut f = File::create(&main_path)?;
-        writeln!(f, "IMPORT \"lib.txt\"")?;
-    }
-    let result = preprocess_file(&main_path);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(
-            e.to_string()
-                .contains("Imported file must have .hi extension")
-        );
-    }
-    Ok(())
-}
-
-#[test]
-fn test_cyclic_import() -> Result<(), Box<dyn std::error::Error>> {
-    let dir = TempDir::new()?;
-    let a_path = dir.path().join("a.hi");
-    let b_path = dir.path().join("b.hi");
-    {
-        let mut f = File::create(&a_path)?;
-        writeln!(f, "IMPORT \"b.hi\"")?;
-    }
-    {
-        let mut f = File::create(&b_path)?;
-        writeln!(f, "IMPORT \"a.hi\"")?;
-    }
-    let result = preprocess_file(&a_path);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Cyclic import"));
-    }
-    Ok(())
-}
-
-#[test]
 fn test_math_functions() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
-        PRINT "sin(pi/2)=", sin(PI/2)
-        PRINT "cos(0)=", cos(0)
-        PRINT "tan(pi/4)=", tan(PI/4)
-        PRINT "sqrt(16)=", sqrt(16)
-        PRINT "abs(-5)=", abs(-5)
-        PRINT "ceil(3.2)=", ceil(3.2)
-        PRINT "floor(3.9)=", floor(3.9)
-        PRINT "round(3.5)=", round(3.5)
-        PRINT "torad(180)=", torad(180)
-        PRINT "todeg(pi)=", todeg(PI)
-        PRINT "exp(1)=", exp(1)
-        PRINT "log(e)=", log(E)
-        PRINT "rand(1,10)=", rand(1,10)
+        IMPORT "math" AS m
+        LET pi = m:PI
+        PRINT "sin(pi/2)=", m:sin(pi/2)
+        PRINT "cos(0)=", m:cos(0)
+        PRINT "tan(pi/4)=", m:tan(pi/4)
+        PRINT "sqrt(16)=", m:sqrt(16)
+        PRINT "abs(-5)=", m:abs(-5)
+        PRINT "ceil(3.2)=", m:ceil(3.2)
+        PRINT "floor(3.9)=", m:floor(3.9)
+        PRINT "round(3.5)=", m:round(3.5)
+        PRINT "torad(180)=", m:torad(180)
+        PRINT "todeg(pi)=", m:todeg(pi)
+        PRINT "exp(1)=", m:exp(1)
+        PRINT "log(e)=", m:log(m:E)
+        PRINT "rand(1,10)=", m:rand(1,10)
     "#;
     let (result, output) = run_and_capture(code)?;
     assert!(output.contains("sin(pi/2)=1"));
@@ -700,6 +623,213 @@ fn test_function_as_value() -> Result<(), Box<dyn std::error::Error>> {
     "#;
     let (result, output) = run_and_capture(code)?;
     assert!(output.contains("result=10"));
+    result?;
+    Ok(())
+}
+
+#[test]
+fn test_type_error_arithmetic() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        LET x = "hello" + 5
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(
+            e.to_string()
+                .contains("Arithmetic operation requires numbers")
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_list_index_out_of_bounds() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        LET list = [1, 2, 3]
+        LET value = list[5]
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("Index 5 out of bounds"));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_list_index_non_integer() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        LET list = [1, 2, 3]
+        LET value = list["a"]
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("List index must be an integer"));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_dict_key_not_hashable() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        LET d = { [1] = 2 }
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("Dictionary key must be hashable"));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_call_undefined_function() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        undefined_func(1, 2)
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(
+            e.to_string()
+                .contains("Function 'undefined_func' not found")
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_call_function_wrong_arg_count() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        FUNC add(a, b) RET a + b END
+        add(1)
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(
+            e.to_string()
+                .contains("Function 'add' expects 2 arguments, got 1")
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_import_nonexistent_file() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        IMPORT "nonexistent.hi"
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("No such file or directory"));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_error_inside_imported_module() -> Result<(), Box<dyn std::error::Error>> {
+    let dir = TempDir::new()?;
+    let mod_path = dir.path().join("module.hi");
+    std::fs::write(&mod_path, "LET x = 1 / 0")?;
+
+    let code = format!(r#"IMPORT "{}""#, mod_path.to_str().unwrap());
+    let (result, _) = run_and_capture(&code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("Division by zero"));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_builtin_len_on_non_collection() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        LET x = len(42)
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(
+            e.to_string()
+                .contains("len() expects string, list, or dict, got integer")
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_builtin_keys_on_non_dict() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        LET x = keys([1, 2, 3])
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(e.to_string().contains("keys() expects a dict, got list"));
+    }
+    Ok(())
+}
+
+#[test]
+fn test_module_variable_not_found() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        IMPORT "math" AS m
+        LET x = m:UNDEFINED
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(
+            e.to_string()
+                .contains("Variable 'UNDEFINED' not found in module 'm'")
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_module_function_not_found() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        IMPORT "math" AS m
+        m:undefined_func(1)
+    "#;
+    let (result, _) = run_and_capture(code)?;
+    assert!(result.is_err());
+    if let Err(e) = result {
+        assert!(
+            e.to_string()
+                .contains("Function 'undefined_func' not found in module")
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn test_import_builtin_without_alias_inline() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        IMPORT "math"
+        LET x = sin(PI/2)
+        PRINT x
+    "#;
+    let (result, output) = run_and_capture(code)?;
+    assert!(output.contains("1.0"));
+    result?;
+    Ok(())
+}
+
+#[test]
+fn test_import_builtin_with_alias() -> Result<(), Box<dyn std::error::Error>> {
+    let code = r#"
+        IMPORT "math" AS m
+        LET x = m:sin(m:PI/2)
+        PRINT x
+    "#;
+    let (result, output) = run_and_capture(code)?;
+    assert!(output.contains("1.0"));
     result?;
     Ok(())
 }

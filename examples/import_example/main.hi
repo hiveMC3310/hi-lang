@@ -1,12 +1,12 @@
 // Main program that imports lib.hi
 
-IMPORT "lib.hi"
+IMPORT "lib.hi" AS l
 
-LET message = greet("Alice")
+LET message = l:greet("Alice")
 PRINT message
 
-LET sum = add(10, 20)
+LET sum = l:add(10, 20)
 PRINT "10 + 20 = ", sum
 
-LET product = multiply(5, 6)
+LET product = l:multiply(5, 6)
 PRINT "5 * 6 = ", product

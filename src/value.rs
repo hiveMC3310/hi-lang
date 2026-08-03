@@ -33,7 +33,7 @@ impl FileHandle {
 }
 
 /// Represents a value in the Hi language: integer, float, string, or boolean.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Value {
     Int(i64),
     Float(f64),
@@ -44,6 +44,7 @@ pub enum Value {
     Dict(Rc<RefCell<HashMap<Value, Value>>>),
     Function(String),
     Nil,
+    Module(Rc<RefCell<dyn crate::modules::Module>>),
 }
 
 impl Eq for Value {}
@@ -93,7 +94,7 @@ impl std::hash::Hash for Value {
             Value::Bool(b) => b.hash(state),
             Value::Nil => ().hash(state),
             Value::Function(name) => name.hash(state),
-            Value::List(_) | Value::Dict(_) | Value::File(_) => {
+            Value::List(_) | Value::Dict(_) | Value::File(_) | Value::Module(_) => {
                 panic!("attempted to hash non‑hashable value")
             }
         }
@@ -113,6 +114,7 @@ impl Value {
             Value::Dict(d) => !d.borrow().is_empty(),
             Value::File(_) => false,
             Value::Function(_) => true,
+            Value::Module(_) => true,
         }
     }
 
@@ -121,6 +123,23 @@ impl Value {
             self,
             Value::Int(_) | Value::Float(_) | Value::String(_) | Value::Bool(_)
         )
+    }
+}
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Int(i) => write!(f, "Int({})", i),
+            Value::Float(fl) => write!(f, "Float({})", fl),
+            Value::String(s) => write!(f, "String({:?})", s),
+            Value::Bool(b) => write!(f, "Bool({})", b),
+            Value::Nil => write!(f, "Nil"),
+            Value::Function(name) => write!(f, "Function({})", name),
+            Value::Module(_) => write!(f, "Module(<module>)"),
+            Value::List(l) => write!(f, "List({:?})", l.borrow()),
+            Value::Dict(d) => write!(f, "Dict({:?})", d.borrow()),
+            Value::File(fh) => write!(f, "File({:?})", fh.borrow()),
+        }
     }
 }
 
@@ -139,6 +158,7 @@ impl fmt::Display for Value {
             Value::Bool(b) => write!(f, "{}", if *b { "TRUE" } else { "FALSE" }),
             Value::Nil => write!(f, "nil"),
             Value::Function(name) => write!(f, "<func {}>", name),
+            Value::Module(_) => write!(f, "<module>",),
             Value::List(l) => {
                 let vec = l.borrow();
                 write!(f, "[")?;

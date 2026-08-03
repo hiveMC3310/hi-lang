@@ -1,8 +1,8 @@
 # Hi Language v2.0.0
 
 **Hi** is a minimalist, dynamically typed interpreted language with a **clean, readable syntax** inspired by BASIC.  
-It supports variables, arithmetic/logic, control flow, functions, lists, dictionaries, file I/O, modules, and more — all
-written in **Rust** for speed and safety.
+It supports variables, arithmetic/logic, control flow, functions, lists, dictionaries, file I/O, **modules**, and more —
+all written in **Rust** for speed and safety.
 
 > **.hi** is the official file extension for Hi source files.
 
@@ -18,10 +18,10 @@ The language has moved away from explicit stack operations to a more natural, ex
 - **Conditions** with `IF ... THEN ... ELSE ... END`.
 - **Loops**: `WHILE ... DO ... END` and `FOR ... TO ... NEXT`.
 - **Functions** defined with `FUNC ... END` and called with `name(args)`.
-- **Built‑in functions** for strings, lists, dicts, math, I/O, and conversions.
+- **Built‑in modules** (`math`, `strings`, `io`) providing namespaced functions and constants.
+- **User modules** – import your own `.hi` files with `IMPORT` and optional aliases.
 - **Lists** and **dictionaries** as first‑class citizens.
 - **File I/O** with `open`, `read`, `write`, etc.
-- **Module imports** via `IMPORT "file.hi"`.
 - **Command‑line arguments** available as `ARGS` (list) and `ARGS_DICT` (dict).
 
 The new syntax is more intuitive, easier to read, and less error‑prone — while keeping the lightweight feel of the
@@ -170,22 +170,46 @@ LET keys = keys(user)
 PRINT keys                  // ["name", "age", "city"]
 ```
 
-### File I/O
+### File I/O (using `io` module)
 
 ```hi
-LET f = open("output.txt", "w")
-writeln(f, "Hello, file!")
-close(f)
+IMPORT "io" AS io
+LET f = io:open("output.txt", "w")
+io:writeln(f, "Hello, file!")
+io:close(f)
 
-LET f2 = open("output.txt", "r")
-LET content = read(f2)
+LET f2 = io:open("output.txt", "r")
+LET content = io:read(f2)
 PRINT "File content: ", content
-close(f2)
+io:close(f2)
 ```
 
 ### Modules (IMPORT)
 
-**double.hi**:
+Hi has built‑in modules (`math`, `strings`, `io`) and supports user‑defined modules from `.hi` files.
+
+**Using built‑in modules with aliases**:
+
+```hi
+IMPORT "math" AS m
+LET x = m:sin(m:PI / 2)   // 1.0
+PRINT x
+
+IMPORT "strings" AS s
+LET parts = s:split("a,b,c", ",")
+PRINT parts                // ["a", "b", "c"]
+```
+
+**Inlining a built‑in module** (adds its functions to the global namespace):
+
+```hi
+IMPORT "math"
+LET y = sin(PI / 2)        // sin and PI are now global
+```
+
+**User‑defined module**:
+
+`double.hi`:
 
 ```hi
 FUNC double(x)
@@ -193,13 +217,23 @@ FUNC double(x)
 END
 ```
 
-**main.hi**:
+`main.hi`:
+
+```hi
+IMPORT "double.hi" AS d
+LET result = d:double(21)
+PRINT result                // 42
+```
+
+**Inlining a user module** (its variables and functions become global):
 
 ```hi
 IMPORT "double.hi"
-LET result = double(21)
-PRINT result                // 42
+LET result2 = double(10)   // double is now global
+PRINT result2               // 20
 ```
+
+**Imports are cached** – each file is loaded only once. Cyclic imports are detected and reported.
 
 ### Command‑Line Arguments
 
@@ -212,7 +246,7 @@ Inside the script:
 ```hi
 PRINT "Positional args: ", ARGS          // ["arg1", "arg2"]
 PRINT "Named args: ", ARGS_DICT["name"]  // "Alice"
-PRINT "Verbose flag: ", ARGS_DICT["verbose"]  // True
+PRINT "Verbose flag: ", ARGS_DICT["verbose"]  // TRUE
 ```
 
 ### And more…

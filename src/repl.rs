@@ -3,7 +3,6 @@
 use crate::interpreter::Interpreter;
 use crate::parser::Parser;
 use crate::parser::lexer::{Lexer, TokenKind};
-use crate::preprocessor::preprocess_file;
 use colored::Colorize;
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
@@ -56,9 +55,9 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
             for (k, v) in &interpreter.env.vars {
                 println!("{} = {}", k, v);
             }
-            if !interpreter.functions.is_empty() {
+            if !interpreter.env.functions.is_empty() {
                 println!("Functions:");
-                for (name, (params, _)) in &interpreter.functions {
+                for (name, (params, _)) in &interpreter.env.functions {
                     println!("  {}({})", name, params.join(", "));
                 }
             }
@@ -91,46 +90,37 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
 
-            match preprocess_file(path) {
-                Ok(lines) => {
-                    loaded_files.insert(abs_path.clone());
-                    let source = lines.join("\n");
-                    match Lexer::tokenize(&source) {
-                        Ok(tokens) => {
-                            let mut parser = Parser::new(&tokens);
-                            match parser.parse() {
-                                Ok(program) => {
-                                    if let Err(e) = interpreter.run(&program) {
-                                        eprintln!("{} {}", "error:".red().bold(), e);
-                                        if let Some(span) = e.span() {
-                                            eprintln!(
-                                                "{} {} {} {} {}",
-                                                "at".yellow().bold(),
-                                                format!("line {}", span.start_line).cyan().bold(),
-                                                "column".yellow().bold(),
-                                                span.start_col.to_string().cyan().bold(),
-                                                format!("in file {}", path_str).yellow().bold()
-                                            );
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    eprintln!("{} {}", "parse error:".red().bold(), e);
-                                    if let Some(span) = e.span() {
-                                        eprintln!(
-                                            "{} {} {} {} {}",
-                                            "at".yellow().bold(),
-                                            format!("line {}", span.start_line).cyan().bold(),
-                                            "column".yellow().bold(),
-                                            span.start_col.to_string().cyan().bold(),
-                                            format!("in file {}", path_str).yellow().bold()
-                                        );
-                                    }
+            let source = match std::fs::read_to_string(path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("Cannot read file: {}", e);
+                    continue;
+                }
+            };
+
+            match Lexer::tokenize(&source) {
+                Ok(tokens) => {
+                    let mut parser = Parser::new(&tokens);
+                    match parser.parse() {
+                        Ok(program) => {
+                            loaded_files.insert(abs_path.clone());
+                            interpreter.current_file = Some(abs_path);
+                            if let Err(e) = interpreter.run(&program) {
+                                eprintln!("{} {}", "error:".red().bold(), e);
+                                if let Some(span) = e.span() {
+                                    eprintln!(
+                                        "{} {} {} {} {}",
+                                        "at".yellow().bold(),
+                                        format!("line {}", span.start_line).cyan().bold(),
+                                        "column".yellow().bold(),
+                                        span.start_col.to_string().cyan().bold(),
+                                        format!("in file {}", path_str).yellow().bold()
+                                    );
                                 }
                             }
                         }
                         Err(e) => {
-                            eprintln!("{} {}", "lex error:".red().bold(), e);
+                            eprintln!("{} {}", "parse error:".red().bold(), e);
                             if let Some(span) = e.span() {
                                 eprintln!(
                                     "{} {} {} {} {}",
@@ -145,14 +135,15 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("{} {}", "error:".red().bold(), e);
+                    eprintln!("{} {}", "lex error:".red().bold(), e);
                     if let Some(span) = e.span() {
                         eprintln!(
-                            "{} {} {} {}",
+                            "{} {} {} {} {}",
                             "at".yellow().bold(),
                             format!("line {}", span.start_line).cyan().bold(),
                             "column".yellow().bold(),
                             span.start_col.to_string().cyan().bold(),
+                            format!("in file {}", path_str).yellow().bold()
                         );
                     }
                 }

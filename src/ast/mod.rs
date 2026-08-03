@@ -54,6 +54,7 @@ pub enum Stmt {
     Print(Vec<Expr>, Span),
     Assign(Box<Expr>, Box<Expr>, Span),
     Expr(Expr, Span),
+    Import(String, Option<String>, Span),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,6 +70,8 @@ pub enum Expr {
     List(Vec<Expr>, Span),
     Dict(Vec<(Expr, Expr)>, Span),
     Call(String, Vec<Expr>, Span),
+    ModuleAccess(String, String, Span),
+    CallModule(String, String, Vec<Expr>, Span),
 }
 
 impl Expr {
@@ -85,6 +88,8 @@ impl Expr {
             Expr::Call(_, _, span) => *span,
             Expr::List(_, span) => *span,
             Expr::Dict(_, span) => *span,
+            Expr::ModuleAccess(_, _, span) => *span,
+            Expr::CallModule(_, _, _, span) => *span,
         }
     }
 }

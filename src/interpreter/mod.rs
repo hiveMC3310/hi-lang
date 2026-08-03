@@ -1,20 +1,22 @@
 //! Interpreter for the Hi language, executes AST.
 
-mod builtins;
-
 use crate::ast::{BinOp, Block, Expr, Program, Span, Stmt, UnOp};
 use crate::error::{InterpError, InterpResult};
-use crate::interpreter::builtins::{Builtin, BuiltinFn};
+use crate::modules::{BuiltinFn, Module, UserModule, core};
+use crate::parser::Parser;
+use crate::parser::lexer::Lexer;
 use crate::value::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct Environment {
     pub parent: Option<Box<Environment>>,
     pub vars: HashMap<String, Value>,
+    pub functions: HashMap<String, (Vec<String>, Block)>,
 }
 
 impl Environment {
@@ -22,6 +24,7 @@ impl Environment {
         Self {
             parent: None,
             vars: HashMap::new(),
+            functions: HashMap::new(),
         }
     }
 
@@ -29,7 +32,22 @@ impl Environment {
         Environment {
             parent: Some(Box::new(self.clone())),
             vars: HashMap::new(),
+            functions: HashMap::new(),
         }
+    }
+
+    pub fn get_function(&self, name: &str) -> Option<(Vec<String>, Block)> {
+        if let Some(f) = self.functions.get(name) {
+            Some(f.clone())
+        } else if let Some(parent) = &self.parent {
+            parent.get_function(name)
+        } else {
+            None
+        }
+    }
+
+    pub fn declare_function(&mut self, name: String, params: Vec<String>, body: Block) {
+        self.functions.insert(name, (params, body));
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {
@@ -63,26 +81,33 @@ impl Environment {
 
 pub struct Interpreter {
     pub env: Environment,
-    pub functions: HashMap<String, (Vec<String>, Block)>,
-    pub builtins: HashMap<String, BuiltinFn>,
     pub return_value: Option<Value>,
     pub break_flag: bool,
     pub loop_depth: usize,
     pub argv: Vec<String>,
+    pub current_file: Option<PathBuf>,
+    pub(crate) global_functions: HashMap<String, BuiltinFn>,
+    builtin_modules: HashMap<String, Rc<RefCell<dyn Module>>>,
+    modules_cache: HashMap<PathBuf, Rc<RefCell<dyn Module>>>,
+    load_stack: Vec<PathBuf>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         let mut s = Self {
             env: Environment::new(),
-            functions: HashMap::new(),
+            global_functions: HashMap::new(),
             return_value: None,
             break_flag: false,
             loop_depth: 0,
-            builtins: HashMap::new(),
             argv: Vec::new(),
+            builtin_modules: HashMap::new(),
+            modules_cache: HashMap::new(),
+            load_stack: Vec::new(),
+            current_file: None,
         };
-        s.init_builtins();
+        s.init_global_functions();
+        s.init_builtin_modules();
         s.init_globals();
         s
     }
@@ -94,118 +119,68 @@ impl Interpreter {
         // ARGS_DICT
         let args_dict = Value::Dict(Rc::new(RefCell::new(HashMap::new())));
         self.env.declare("ARGS_DICT".to_string(), args_dict);
-        // Math consts
-        self.env
-            .declare("PI".to_string(), Value::Float(std::f64::consts::PI));
-        self.env
-            .declare("E".to_string(), Value::Float(std::f64::consts::E));
     }
 
-    fn init_builtins(&mut self) {
-        self.builtins
-            .insert("hello".to_string(), Rc::new(Builtin::hello_fn));
-        self.builtins
-            .insert("len".to_string(), Rc::new(Builtin::len_fn));
-        self.builtins
-            .insert("keys".to_string(), Rc::new(Builtin::keys_fn));
-        self.builtins
-            .insert("values".to_string(), Rc::new(Builtin::values_fn));
-        self.builtins
-            .insert("append".to_string(), Rc::new(Builtin::append_fn));
-        self.builtins
-            .insert("insert".to_string(), Rc::new(Builtin::insert_fn));
-        self.builtins
-            .insert("remove".to_string(), Rc::new(Builtin::remove_fn));
-        self.builtins
-            .insert("contains".to_string(), Rc::new(Builtin::contains_fn));
-        self.builtins
-            .insert("split".to_string(), Rc::new(Builtin::split_fn));
-        self.builtins
-            .insert("replace".to_string(), Rc::new(Builtin::replace_fn));
-        self.builtins
-            .insert("starts".to_string(), Rc::new(Builtin::starts_fn));
-        self.builtins
-            .insert("ends".to_string(), Rc::new(Builtin::ends_fn));
-        self.builtins
-            .insert("upper".to_string(), Rc::new(Builtin::upper_fn));
-        self.builtins
-            .insert("lower".to_string(), Rc::new(Builtin::lower_fn));
-        self.builtins
-            .insert("trim".to_string(), Rc::new(Builtin::trim_fn));
-        self.builtins
-            .insert("concat".to_string(), Rc::new(Builtin::concat_fn));
-        self.builtins
-            .insert("substr".to_string(), Rc::new(Builtin::substr_fn));
-        self.builtins
-            .insert("slice".to_string(), Rc::new(Builtin::slice_fn));
-        self.builtins
-            .insert("reverse".to_string(), Rc::new(Builtin::reverse_fn));
-        self.builtins
-            .insert("indexof".to_string(), Rc::new(Builtin::indexof_fn));
-        self.builtins
-            .insert("put".to_string(), Rc::new(Builtin::put_fn));
-        self.builtins
-            .insert("get".to_string(), Rc::new(Builtin::get_fn));
-        self.builtins
-            .insert("open".to_string(), Rc::new(Builtin::open_fn));
-        self.builtins
-            .insert("read".to_string(), Rc::new(Builtin::read_fn));
-        self.builtins
-            .insert("readln".to_string(), Rc::new(Builtin::readln_fn));
-        self.builtins
-            .insert("write".to_string(), Rc::new(Builtin::write_fn));
-        self.builtins
-            .insert("writeln".to_string(), Rc::new(Builtin::writeln_fn));
-        self.builtins
-            .insert("close".to_string(), Rc::new(Builtin::close_fn));
-        self.builtins
-            .insert("eof".to_string(), Rc::new(Builtin::eof_fn));
-        self.builtins
-            .insert("sin".to_string(), Rc::new(Builtin::sin_fn));
-        self.builtins
-            .insert("cos".to_string(), Rc::new(Builtin::cos_fn));
-        self.builtins
-            .insert("tan".to_string(), Rc::new(Builtin::tan_fn));
-        self.builtins
-            .insert("asin".to_string(), Rc::new(Builtin::asin_fn));
-        self.builtins
-            .insert("acos".to_string(), Rc::new(Builtin::acos_fn));
-        self.builtins
-            .insert("atan".to_string(), Rc::new(Builtin::atan_fn));
-        self.builtins
-            .insert("sqrt".to_string(), Rc::new(Builtin::sqrt_fn));
-        self.builtins
-            .insert("torad".to_string(), Rc::new(Builtin::torad_fn));
-        self.builtins
-            .insert("todeg".to_string(), Rc::new(Builtin::todeg_fn));
-        self.builtins
-            .insert("exp".to_string(), Rc::new(Builtin::exp_fn));
-        self.builtins
-            .insert("log".to_string(), Rc::new(Builtin::log_fn));
-        self.builtins
-            .insert("log2".to_string(), Rc::new(Builtin::log2_fn));
-        self.builtins
-            .insert("log10".to_string(), Rc::new(Builtin::log10_fn));
-        self.builtins
-            .insert("ceil".to_string(), Rc::new(Builtin::ceil_fn));
-        self.builtins
-            .insert("floor".to_string(), Rc::new(Builtin::floor_fn));
-        self.builtins
-            .insert("round".to_string(), Rc::new(Builtin::round_fn));
-        self.builtins
-            .insert("abs".to_string(), Rc::new(Builtin::abs_fn));
-        self.builtins
-            .insert("rand".to_string(), Rc::new(Builtin::rand_fn));
-        self.builtins
-            .insert("tostring".to_string(), Rc::new(Builtin::tostring_fn));
-        self.builtins
-            .insert("toint".to_string(), Rc::new(Builtin::toint_fn));
-        self.builtins
-            .insert("tofloat".to_string(), Rc::new(Builtin::tofloat_fn));
-        self.builtins
-            .insert("call".to_string(), Rc::new(Builtin::call_fn));
-        self.builtins
-            .insert("typeof".to_string(), Rc::new(Builtin::typeof_fn));
+    fn init_global_functions(&mut self) {
+        self.global_functions
+            .insert("hello".to_string(), Rc::new(core::hello_fn));
+        self.global_functions
+            .insert("len".to_string(), Rc::new(core::len_fn));
+        self.global_functions
+            .insert("keys".to_string(), Rc::new(core::keys_fn));
+        self.global_functions
+            .insert("values".to_string(), Rc::new(core::values_fn));
+        self.global_functions
+            .insert("append".to_string(), Rc::new(core::append_fn));
+        self.global_functions
+            .insert("insert".to_string(), Rc::new(core::insert_fn));
+        self.global_functions
+            .insert("remove".to_string(), Rc::new(core::remove_fn));
+        self.global_functions
+            .insert("contains".to_string(), Rc::new(core::contains_fn));
+        self.global_functions
+            .insert("concat".to_string(), Rc::new(core::concat_fn));
+        self.global_functions
+            .insert("slice".to_string(), Rc::new(core::slice_fn));
+        self.global_functions
+            .insert("reverse".to_string(), Rc::new(core::reverse_fn));
+        self.global_functions
+            .insert("indexof".to_string(), Rc::new(core::indexof_fn));
+        self.global_functions
+            .insert("put".to_string(), Rc::new(core::put_fn));
+        self.global_functions
+            .insert("get".to_string(), Rc::new(core::get_fn));
+        self.global_functions
+            .insert("tostring".to_string(), Rc::new(core::tostring_fn));
+        self.global_functions
+            .insert("toint".to_string(), Rc::new(core::toint_fn));
+        self.global_functions
+            .insert("tofloat".to_string(), Rc::new(core::tofloat_fn));
+        self.global_functions
+            .insert("call".to_string(), Rc::new(core::call_fn));
+        self.global_functions
+            .insert("typeof".to_string(), Rc::new(core::typeof_fn));
+    }
+
+    fn init_builtin_modules(&mut self) {
+        use crate::modules::io::new_io_module;
+        use crate::modules::math::new_math_module;
+        use crate::modules::strings::new_strings_module;
+
+        let math = Rc::new(RefCell::new(new_math_module()));
+        self.builtin_modules
+            .insert("math".to_string(), math.clone());
+        self.env.declare("math".to_string(), Value::Module(math));
+
+        let strings = Rc::new(RefCell::new(new_strings_module()));
+        self.builtin_modules
+            .insert("strings".to_string(), strings.clone());
+        self.env
+            .declare("strings".to_string(), Value::Module(strings));
+
+        let io = Rc::new(RefCell::new(new_io_module()));
+        self.builtin_modules.insert("io".to_string(), io.clone());
+        self.env.declare("io".to_string(), Value::Module(io));
     }
 
     pub fn set_argv(&mut self, argv: Vec<String>) {
@@ -280,7 +255,7 @@ impl Interpreter {
         Ok(self.return_value.take())
     }
 
-    fn execute_stmt(&mut self, stmt: &Stmt) -> InterpResult<()> {
+    pub(crate) fn execute_stmt(&mut self, stmt: &Stmt) -> InterpResult<()> {
         match stmt {
             Stmt::Let(name, expr, _) => {
                 let val = self.eval_expr(expr)?;
@@ -442,8 +417,8 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Func(name, params, body, _) => {
-                self.functions
-                    .insert(name.clone(), (params.clone(), body.clone()));
+                self.env
+                    .declare_function(name.clone(), params.clone(), body.clone());
                 Ok(())
             }
             Stmt::Return(expr, _) => {
@@ -468,6 +443,23 @@ impl Interpreter {
                 self.eval_expr(expr)?;
                 Ok(())
             }
+            Stmt::Import(path, alias, span) => {
+                if let Some(module_rc) = self.builtin_modules.get(path) {
+                    self.attach_module(module_rc.clone(), alias.as_deref(), span)?;
+                    return Ok(());
+                }
+
+                let base_dir = self
+                    .current_file
+                    .as_ref()
+                    .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                    .unwrap_or_else(|| {
+                        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                    });
+                let import_path = base_dir.join(&path);
+                self.load_user_module(&import_path, alias.as_deref(), span)?;
+                Ok(())
+            }
         }
     }
 
@@ -482,7 +474,7 @@ impl Interpreter {
                 if let Some(v) = self.env.get(name) {
                     return Ok(v);
                 }
-                if self.functions.contains_key(name) {
+                if self.env.get_function(name).is_some() {
                     return Ok(Value::Function(name.clone()));
                 }
                 Err(InterpError::Runtime {
@@ -515,12 +507,16 @@ impl Interpreter {
             Expr::Call(name, args, span) => {
                 // Function call
 
-                if let Some(builtin_fn) = self.builtins.get(name) {
+                if let Some(builtin_fn) = self.global_functions.get(name) {
                     let f = builtin_fn.clone();
-                    return f(self, args, span);
+                    let mut arg_vals = Vec::new();
+                    for arg in args {
+                        arg_vals.push(self.eval_expr(arg)?);
+                    }
+                    return f(self, &arg_vals, span);
                 }
 
-                if let Some((params, body)) = self.functions.get(name).cloned() {
+                if let Some((params, body)) = self.env.get_function(name) {
                     if args.len() != params.len() {
                         return Err(InterpError::Runtime {
                             span: *span,
@@ -631,6 +627,116 @@ impl Interpreter {
                         ),
                     }),
                 }
+            }
+            Expr::ModuleAccess(module_name, var_name, span) => {
+                let module_val = self.eval_expr(&Expr::Variable(module_name.clone(), *span))?;
+                match module_val {
+                    Value::Module(module_rc) => {
+                        let module = module_rc.borrow();
+                        if let Some(val) = module.get_var(var_name) {
+                            Ok(val)
+                        } else {
+                            Err(InterpError::Runtime {
+                                span: *span,
+                                message: format!(
+                                    "Variable '{}' not found in module '{}'",
+                                    var_name, module_name
+                                ),
+                            })
+                        }
+                    }
+                    _ => Err(InterpError::Runtime {
+                        span: *span,
+                        message: format!("Module '{}' not found", module_name),
+                    }),
+                }
+            }
+            Expr::CallModule(module_name, func_name, args, span) => {
+                let module_val = self.eval_expr(&Expr::Variable(module_name.clone(), *span))?;
+                match module_val {
+                    Value::Module(module_rc) => {
+                        let mut arg_values = Vec::new();
+                        for arg in args {
+                            arg_values.push(self.eval_expr(arg)?);
+                        }
+                        let module = module_rc.borrow();
+                        module.call_function(func_name, &arg_values, self, span)
+                    }
+                    _ => Err(InterpError::Runtime {
+                        span: *span,
+                        message: format!("Module '{}' not found", module_name),
+                    }),
+                }
+            }
+        }
+    }
+
+    fn load_user_module(
+        &mut self,
+        path: &Path,
+        alias: Option<&str>,
+        span: &Span,
+    ) -> InterpResult<()> {
+        let abs_path = path.canonicalize().map_err(InterpError::Io)?;
+        // Cyclic check
+        if self.load_stack.contains(&abs_path) {
+            return Err(InterpError::CyclicImport {
+                path: abs_path.display().to_string(),
+            });
+        }
+        // Cash
+        if let Some(module) = self.modules_cache.get(&abs_path) {
+            return self.attach_module(module.clone(), alias, span);
+        }
+
+        // New Env
+        let module_env = Environment::new();
+        let old_env = std::mem::replace(&mut self.env, module_env);
+        let old_return = self.return_value.take();
+        let old_break = self.break_flag;
+
+        let source = std::fs::read_to_string(&abs_path).map_err(InterpError::Io)?;
+        let tokens = Lexer::tokenize(&source)?;
+        let mut parser = Parser::new(&tokens);
+        let program = parser.parse()?;
+
+        self.load_stack.push(abs_path.clone());
+        for stmt in program.stmts {
+            self.execute_stmt(&stmt)?;
+            if self.return_value.is_some() {
+                break;
+            }
+            if self.break_flag {
+                self.break_flag = false;
+            }
+        }
+        self.load_stack.pop();
+
+        // Save Env
+        let env = std::mem::replace(&mut self.env, old_env);
+        self.return_value = old_return;
+        self.break_flag = old_break;
+
+        let module = Rc::new(RefCell::new(UserModule { env }));
+        self.modules_cache.insert(abs_path, module.clone());
+        self.attach_module(module, alias, span)
+    }
+
+    fn attach_module(
+        &mut self,
+        module: Rc<RefCell<dyn Module>>,
+        alias: Option<&str>,
+        _: &Span,
+    ) -> InterpResult<()> {
+        match alias {
+            Some(name) => {
+                self.env.declare(name.to_string(), Value::Module(module));
+                Ok(())
+            }
+            None => {
+                let module_ref = module.borrow();
+                module_ref.inline_into(self)?;
+                Ok(())
             }
         }
     }
