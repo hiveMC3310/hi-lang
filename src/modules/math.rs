@@ -3,7 +3,6 @@ use crate::error::{InterpError, InterpResult};
 use crate::interpreter::Interpreter;
 use crate::modules::{BuiltinFn, BuiltinModule};
 use crate::value::Value;
-use rand::RngExt;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::rc::Rc;
@@ -31,7 +30,9 @@ pub fn new_math_module() -> BuiltinModule {
     funcs.insert("floor".to_string(), Rc::new(floor_fn));
     funcs.insert("round".to_string(), Rc::new(round_fn));
     funcs.insert("abs".to_string(), Rc::new(abs_fn));
-    funcs.insert("rand".to_string(), Rc::new(rand_fn));
+    funcs.insert("min".to_string(), Rc::new(min_fn));
+    funcs.insert("max".to_string(), Rc::new(max_fn));
+    funcs.insert("clamp".to_string(), Rc::new(clamp_fn));
 
     BuiltinModule { vars, funcs }
 }
@@ -185,43 +186,199 @@ fn abs_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult
     Ok(Value::Float(num.abs()))
 }
 
-fn rand_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
-    if args.len() != 2 {
+fn min_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
+    if args.len() == 2 {
+        // Two numbers
+        let a = get_number_arg_opt(&args[0], span)?;
+        let b = get_number_arg_opt(&args[1], span)?;
+        return Ok(min_of_two(a, b));
+    } else if args.len() == 1 {
+        // One argument: must be a list
+        match &args[0] {
+            Value::List(list_rc) => {
+                let list = list_rc.borrow();
+                if list.is_empty() {
+                    return Err(InterpError::Runtime {
+                        span: *span,
+                        message: "min() on empty list".to_string(),
+                    });
+                }
+                // Convert all elements to f64, track if any is float
+                let mut all_int = true;
+                let mut values = Vec::with_capacity(list.len());
+                for v in list.iter() {
+                    match v {
+                        Value::Int(i) => values.push((*i as f64, true)),
+                        Value::Float(f) => {
+                            values.push((*f, false));
+                            all_int = false;
+                        }
+                        _ => {
+                            return Err(InterpError::Runtime {
+                                span: *span,
+                                message: format!(
+                                    "min() list must contain numbers, got {}",
+                                    crate::utils::type_name(v)
+                                ),
+                            });
+                        }
+                    }
+                }
+                let min_val = values.iter().map(|(f, _)| *f).fold(f64::INFINITY, f64::min);
+                if all_int {
+                    Ok(Value::Int(min_val as i64))
+                } else {
+                    Ok(Value::Float(min_val))
+                }
+            }
+            _ => {
+                return Err(InterpError::Runtime {
+                    span: *span,
+                    message: format!(
+                        "min() expects either two numbers or a list of numbers, got {}",
+                        crate::utils::type_name(&args[0])
+                    ),
+                });
+            }
+        }
+    } else {
+        Err(InterpError::Runtime {
+            span: *span,
+            message: format!("min() expects 1 or 2 arguments, got {}", args.len()),
+        })
+    }
+}
+
+fn max_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
+    if args.len() == 2 {
+        let a = get_number_arg_opt(&args[0], span)?;
+        let b = get_number_arg_opt(&args[1], span)?;
+        Ok(max_of_two(a, b))
+    } else if args.len() == 1 {
+        match &args[0] {
+            Value::List(list_rc) => {
+                let list = list_rc.borrow();
+                if list.is_empty() {
+                    return Err(InterpError::Runtime {
+                        span: *span,
+                        message: "max() on empty list".to_string(),
+                    });
+                }
+                let mut all_int = true;
+                let mut values = Vec::with_capacity(list.len());
+                for v in list.iter() {
+                    match v {
+                        Value::Int(i) => {
+                            values.push((*i as f64, true));
+                        }
+                        Value::Float(f) => {
+                            values.push((*f, false));
+                            all_int = false;
+                        }
+                        _ => {
+                            return Err(InterpError::Runtime {
+                                span: *span,
+                                message: format!(
+                                    "max() list must contain numbers, got {}",
+                                    crate::utils::type_name(v)
+                                ),
+                            });
+                        }
+                    }
+                }
+                let max_val = values
+                    .iter()
+                    .map(|(f, _)| *f)
+                    .fold(f64::NEG_INFINITY, f64::max);
+                if all_int {
+                    Ok(Value::Int(max_val as i64))
+                } else {
+                    Ok(Value::Float(max_val))
+                }
+            }
+            _ => {
+                return Err(InterpError::Runtime {
+                    span: *span,
+                    message: format!(
+                        "max() expects either two numbers or a list of numbers, got {}",
+                        crate::utils::type_name(&args[0])
+                    ),
+                });
+            }
+        }
+    } else {
+        Err(InterpError::Runtime {
+            span: *span,
+            message: format!("max() expects 1 or 2 arguments, got {}", args.len()),
+        })
+    }
+}
+
+fn clamp_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
+    if args.len() != 3 {
         return Err(InterpError::Runtime {
             span: *span,
             message: format!(
-                "rand() expects 2 arguments (start, end), got {}",
+                "clamp() expects 3 arguments (value, min, max), got {}",
                 args.len()
             ),
         });
     }
-    let start_val = &args[0];
-    let end_val = &args[1];
-    let start = match start_val {
-        Value::Int(i) => *i,
-        _ => {
-            return Err(InterpError::Runtime {
-                span: *span,
-                message: "rand() start must be integer".to_string(),
-            });
-        }
+    let val = get_number_arg_opt(&args[0], span)?;
+    let a = get_number_arg_opt(&args[1], span)?;
+    let b = get_number_arg_opt(&args[2], span)?;
+
+    // Ensure low <= high
+    let (low, high) = if a.0 <= b.0 { (a, b) } else { (b, a) };
+
+    let result = if val.0 < low.0 {
+        low
+    } else if val.0 > high.0 {
+        high
+    } else {
+        val
     };
-    let end = match end_val {
-        Value::Int(i) => *i,
-        _ => {
-            return Err(InterpError::Runtime {
-                span: *span,
-                message: "rand() end must be integer".to_string(),
-            });
-        }
-    };
-    if start > end {
-        return Err(InterpError::Runtime {
-            span: *span,
-            message: "rand() start must be <= end".to_string(),
-        });
+
+    if result.1 {
+        Ok(Value::Int(result.0 as i64))
+    } else {
+        Ok(Value::Float(result.0))
     }
-    let mut rng = rand::rng();
-    let value = rng.random_range(start..=end);
-    Ok(Value::Int(value))
+}
+
+// Helper to extract a number as f64, regardless of int or float.
+fn get_number_arg_opt(val: &Value, span: &Span) -> InterpResult<(f64, bool)> {
+    match val {
+        Value::Int(i) => Ok((*i as f64, true)),
+        Value::Float(f) => Ok((*f, false)),
+        _ => Err(InterpError::Runtime {
+            span: *span,
+            message: format!("Expected number, got {}", crate::utils::type_name(val)),
+        }),
+    }
+}
+
+fn min_of_two(a: (f64, bool), b: (f64, bool)) -> Value {
+    if a.1 && b.1 {
+        // both ints
+        let ai = a.0 as i64;
+        let bi = b.0 as i64;
+        Value::Int(ai.min(bi))
+    } else {
+        let af = if a.1 { a.0 } else { a.0 };
+        let bf = if b.1 { b.0 } else { b.0 };
+        Value::Float(af.min(bf))
+    }
+}
+
+fn max_of_two(a: (f64, bool), b: (f64, bool)) -> Value {
+    if a.1 && b.1 {
+        let ai = a.0 as i64;
+        let bi = b.0 as i64;
+        Value::Int(ai.max(bi))
+    } else {
+        let af = if a.1 { a.0 } else { a.0 };
+        let bf = if b.1 { b.0 } else { b.0 };
+        Value::Float(af.max(bf))
+    }
 }

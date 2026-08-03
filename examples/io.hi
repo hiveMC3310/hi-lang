@@ -2,24 +2,24 @@
 IMPORT "io"
 
 // Write to a file
-LET f = open("output.txt", "w")
-writeln(f, "Hello, file!")
-writeln(f, "Line 2")
-close(f)
+LET f = io:open("output.txt", "w")
+io:writeln(f, "Hello, file!")
+io:writeln(f, "Line 2")
+io:close(f)
 
 // Read from the file
-LET f2 = open("output.txt", "r")
-LET content = read(f2)
-close(f2)
+LET f2 = io:open("output.txt", "r")
+LET content = io:read(f2)
+io:close(f2)
 PRINT "File content: ", content
 
 // Read line by line
-LET f3 = open("output.txt", "r")
-LET line1 = readln(f3)
-LET line2 = readln(f3)
-LET eof_flag = eof(f3)
-LET line3 = readln(f3)   // empty if EOF
-close(f3)
+LET f3 = io:open("output.txt", "r")
+LET line1 = io:readln(f3)
+LET line2 = io:readln(f3)
+LET eof_flag = io:eof(f3)
+LET line3 = io:readln(f3)   // empty if EOF
+io:close(f3)
 
 PRINT "Line1: ", line1
 PRINT "Line2: ", line2

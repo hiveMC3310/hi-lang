@@ -9,6 +9,7 @@ mod repl;
 mod utils;
 mod value;
 
+use crate::error::InterpError;
 use crate::interpreter::Interpreter;
 use crate::parser::lexer::Lexer;
 use anyhow::Result;
@@ -29,7 +30,6 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-
     if args.filename.is_none() {
         if let Err(e) = repl::repl_run() {
             eprintln!("{} {}", "REPL error:".red().bold(), e);
@@ -39,35 +39,60 @@ fn main() -> Result<()> {
     }
 
     let filename = args.filename.unwrap();
-
     if !filename.ends_with(".hi") {
         eprintln!("{}", "Incorrect file extension".red().bold());
         std::process::exit(1);
     }
 
     let root_path = Path::new(&filename);
-    let source = std::fs::read_to_string(root_path)?;
-    let tokens = Lexer::tokenize(&source)?;
+
+    let source = match std::fs::read_to_string(root_path) {
+        Ok(s) => s,
+        Err(e) => {
+            report_error(&filename, &e.into());
+            std::process::exit(1);
+        }
+    };
+
+    let tokens = match Lexer::tokenize(&source) {
+        Ok(t) => t,
+        Err(e) => {
+            report_error(&filename, &e.into());
+            std::process::exit(1);
+        }
+    };
+
     let mut parser = parser::Parser::new(&tokens);
-    let program = parser.parse()?;
+    let program = match parser.parse() {
+        Ok(p) => p,
+        Err(e) => {
+            report_error(&filename, &e.into());
+            std::process::exit(1);
+        }
+    };
+
     let mut interpreter = Interpreter::new();
     interpreter.set_argv(args.arguments);
     interpreter.current_file = Some(root_path.to_path_buf());
 
     if let Err(e) = interpreter.run(&program) {
-        eprintln!("{} {}", "error:".red().bold(), e);
-        if let Some(span) = e.span() {
-            eprintln!(
-                "{} {} {} {} {}",
-                "at".yellow().bold(),
-                format!("line {}", span.start_line).cyan().bold(),
-                "column".yellow().bold(),
-                span.start_col.to_string().cyan().bold(),
-                format!("in file {}", filename).yellow().bold()
-            );
-        }
+        report_error(&filename, &e);
         std::process::exit(1);
     }
 
     Ok(())
+}
+
+fn report_error(filename: &str, err: &InterpError) {
+    eprintln!("{}", format!("error: {}", err).red().bold());
+    if let Some(span) = err.span() {
+        eprintln!(
+            "{} {} {} {} {}",
+            "at".yellow().bold(),
+            format!("line {}", span.start_line).cyan().bold(),
+            "column".yellow().bold(),
+            span.start_col.to_string().cyan().bold(),
+            format!("in file {}", filename).yellow().bold()
+        );
+    }
 }

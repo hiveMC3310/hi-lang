@@ -112,7 +112,10 @@ fn close_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Va
     };
     let mut handle = fh.borrow_mut();
     if let Some(ref mut writer) = handle.writer {
-        writer.flush().map_err(InterpError::Io)?;
+        writer.flush().map_err(|e| InterpError::Io {
+            source: e,
+            span: Some(*span),
+        })?;
     }
     handle.reader = None;
     handle.writer = None;
@@ -147,7 +150,10 @@ fn read_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Val
     let mut content = String::new();
     reader
         .read_to_string(&mut content)
-        .map_err(InterpError::Io)?;
+        .map_err(|e| InterpError::Io {
+            source: e,
+            span: Some(*span),
+        })?;
     handle.eof = true;
     Ok(Value::String(content))
 }
@@ -178,7 +184,10 @@ fn readln_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<V
         message: "File is not open for reading".to_string(),
     })?;
     let mut line = String::new();
-    let bytes = reader.read_line(&mut line).map_err(InterpError::Io)?;
+    let bytes = reader.read_line(&mut line).map_err(|e| InterpError::Io {
+        source: e,
+        span: Some(*span),
+    })?;
     if bytes == 0 {
         handle.eof = true;
     }
@@ -214,7 +223,10 @@ fn write_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Va
         span: *span,
         message: "File is not open for writing".to_string(),
     })?;
-    write!(writer, "{}", value).map_err(InterpError::Io)?;
+    write!(writer, "{}", value).map_err(|e| InterpError::Io {
+        source: e,
+        span: Some(*span),
+    })?;
     Ok(Value::Nil)
 }
 
@@ -247,7 +259,10 @@ fn writeln_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
         span: *span,
         message: "File is not open for writing".to_string(),
     })?;
-    writeln!(writer, "{}", value).map_err(InterpError::Io)?;
+    writeln!(writer, "{}", value).map_err(|e| InterpError::Io {
+        source: e,
+        span: Some(*span),
+    })?;
     Ok(Value::Nil)
 }
 

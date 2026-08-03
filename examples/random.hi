@@ -1,0 +1,17 @@
+IMPORT "random" AS r
+
+LET dice = r:randint(1, 6)
+PRINT "Dice roll: ", dice
+
+LET prob = r:randfloat()
+PRINT "Random float [0,1): ", prob
+
+LET bytes = r:randbytes(4)
+PRINT "Random bytes: ", bytes
+
+LET list = [10, 20, 30, 40, 50]
+LET shuffled = r:shuffle(list)
+PRINT "Shuffled: ", shuffled
+
+LET pick = r:choice(list)
+PRINT "Random choice: ", pick

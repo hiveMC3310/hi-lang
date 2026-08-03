@@ -1,0 +1,22 @@
+IMPORT "regex" AS re
+
+LET text = "Hello 123 world 456!"
+
+// Match
+PRINT "Contains digits? ", re:match("\\d+", text)   // TRUE
+
+// Find first
+LET first = re:find("\\d+", text)
+PRINT "First number: ", first   // "123"
+
+// Find all
+LET all = re:find_all("\\d+", text)
+PRINT "All numbers: ", all      // ["123", "456"]
+
+// Replace
+LET replaced = re:replace("\\d+", text, "X")
+PRINT "Replaced: ", replaced    // "Hello X world X!"
+
+// Split
+LET parts = re:split("\\s+", "one two  three")
+PRINT "Split: ", parts          // ["one", "two", "three"]

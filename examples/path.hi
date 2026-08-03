@@ -1,0 +1,9 @@
+IMPORT "path" AS p
+
+PRINT "join: ", p:join("usr", "local", "bin")
+PRINT "basename: ", p:basename("/foo/bar.txt")
+PRINT "dirname: ", p:dirname("/foo/bar.txt")
+PRINT "dirname (trailing slash): ", p:dirname("foo/bar/")
+PRINT "extname: ", p:extname("archive.tar.gz")
+PRINT "is_absolute: ", p:is_absolute("/home")
+PRINT "normalize: ", p:normalize("a/./b/../c")

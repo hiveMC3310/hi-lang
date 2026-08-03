@@ -20,7 +20,6 @@ PRINT "Hello, World!"
 // or just
 
 hello()
-
 ```
 
 ---
@@ -334,24 +333,24 @@ Covers file writing, reading, reading lines, checking EOF, and console input wit
 // Demonstrates file I/O and console input
 
 // Write to a file
-LET f = open("output.txt", "w")
-writeln(f, "Hello, file!")
-writeln(f, "Line 2")
-close(f)
+LET f = io:open("output.txt", "w")
+io:writeln(f, "Hello, file!")
+io:writeln(f, "Line 2")
+io:close(f)
 
 // Read from the file
-LET f2 = open("output.txt", "r")
-LET content = read(f2)
-close(f2)
+LET f2 = io:open("output.txt", "r")
+LET content = io:read(f2)
+io:close(f2)
 PRINT "File content: ", content
 
 // Read line by line
-LET f3 = open("output.txt", "r")
-LET line1 = readln(f3)
-LET line2 = readln(f3)
-LET eof_flag = eof(f3)
-LET line3 = readln(f3)   // empty if EOF
-close(f3)
+LET f3 = io:open("output.txt", "r")
+LET line1 = io:readln(f3)
+LET line2 = io:readln(f3)
+LET eof_flag = io:eof(f3)
+LET line3 = io:readln(f3)   // empty if EOF
+io:close(f3)
 
 PRINT "Line1: ", line1
 PRINT "Line2: ", line2
@@ -366,6 +365,246 @@ PRINT "Hello, ", name
 // Using a prompt
 INPUT "Enter your age: " age
 PRINT "You are ", age, " years old."
+```
+
+---
+
+## Mathematical Functions
+
+**File:** `examples/math.hi`  
+Demonstrates the `math` module – constants, trigonometry, rounding, and the new `min`/`max`/`clamp`.
+
+```hi
+IMPORT "math" AS m
+
+PRINT "PI = ", m:PI
+PRINT "E = ", m:E
+
+PRINT "sin(PI/2) = ", m:sin(m:PI / 2)
+PRINT "sqrt(16) = ", m:sqrt(16)
+PRINT "abs(-5) = ", m:abs(-5)
+
+PRINT "ceil(3.2) = ", m:ceil(3.2)
+PRINT "floor(3.9) = ", m:floor(3.9)
+PRINT "round(3.5) = ", m:round(3.5)
+
+PRINT "torad(180) = ", m:torad(180)
+PRINT "todeg(PI) = ", m:todeg(m:PI)
+
+PRINT "min(5, 3) = ", m:min(5, 3)
+PRINT "max(5, 3) = ", m:max(5, 3)
+PRINT "min([7, 2, 9, 1]) = ", m:min([7, 2, 9, 1])
+PRINT "max([7, 2, 9, 1]) = ", m:max([7, 2, 9, 1])
+
+PRINT "clamp(5, 1, 10) = ", m:clamp(5, 1, 10)
+PRINT "clamp(0, 1, 10) = ", m:clamp(0, 1, 10)
+PRINT "clamp(15, 1, 10) = ", m:clamp(15, 1, 10)
+
+PRINT "log(E) = ", m:log(m:E)
+PRINT "exp(1) = ", m:exp(1)
+```
+
+---
+
+## Collections Module
+
+**File:** `examples/collections.hi`  
+Shows functional list operations: `map`, `filter`, `reduce`, `any`, `all`, `find`, `sort`.
+
+```hi
+IMPORT "collections" AS c
+
+FUNC double(x) RET x * 2 END
+FUNC is_even(x) RET x % 2 == 0 END
+FUNC add(a, b) RET a + b END
+
+LET numbers = [5, 2, 8, 1, 3]
+
+PRINT "Original: ", numbers
+PRINT "map(double): ", c:map(double, numbers)
+PRINT "filter(is_even): ", c:filter(is_even, numbers)
+PRINT "reduce(add, 0): ", c:reduce(add, numbers, 0)
+PRINT "sort(): ", c:sort(numbers)
+PRINT "any(is_even): ", c:any(is_even, numbers)
+PRINT "all(is_even): ", c:all(is_even, numbers)
+PRINT "find(is_even): ", c:find(is_even, numbers)
+```
+
+---
+
+## JSON Module
+
+**File:** `examples/json.hi`  
+Parses and serialises JSON data.
+
+```hi
+IMPORT "json" AS json
+
+// Parse a JSON object (note: backslashes for quotes)
+LET obj = json:parse("{\"name\":\"Alice\",\"age\":30,\"hobbies\":[\"reading\",\"gaming\"]}")
+PRINT "Name: ", obj["name"]
+PRINT "Age: ", obj["age"]
+PRINT "Hobbies: ", obj["hobbies"]
+
+// Modify and stringify
+obj["age"] = 31
+LET json_str = json:stringify(obj)
+PRINT "Updated JSON: ", json_str
+
+// Parse an array
+LET arr = json:parse("[1, \"two\", false, null]")
+PRINT "Array: ", arr
+```
+
+---
+
+## OS Module
+
+**File:** `examples/os.hi`  
+Environment variables, file system operations, processes.
+
+```hi
+IMPORT "os" AS os
+
+// Environment
+LET user = os:getenv("USER")
+PRINT "User: ", user
+
+os:setenv("MY_VAR", "hello")
+PRINT "MY_VAR = ", os:getenv("MY_VAR")
+os:unsetenv("MY_VAR")
+
+// Current directory
+LET cwd = os:cwd()
+PRINT "Current dir: ", cwd
+
+// List files
+LET files = os:listdir(".")
+PRINT "Files: ", files
+
+// Create and remove directory
+os:mkdir("temp")
+os:rmdir("temp")
+
+// File stats
+LET info = os:stat("os.hi")
+PRINT "Size: ", info["size"]
+PRINT "Is file? ", info["is_file"]
+
+// Existence
+PRINT "Exists? ", os:exists("somefile.txt")
+
+// Execute a command (shell dependent)
+LET exit_code = os:exec("echo 'Hello from shell'")
+PRINT "Exit code: ", exit_code
+```
+
+---
+
+## Datetime Module
+
+**File:** `examples/datetime.hi`  
+Working with dates, times, durations.
+
+```hi
+IMPORT "datetime" AS dt
+
+LET now = dt:now()
+PRINT "Local now: ", dt:tostring(now, "%Y-%m-%d %H:%M:%S")
+
+LET utc = dt:utcnow()
+PRINT "UTC now: ", dt:tostring(utc, "%Y-%m-%d %H:%M:%S")
+
+LET parsed = dt:fromstring("2026-08-03 15:30:45", "%Y-%m-%d %H:%M:%S")
+PRINT "Parsed year: ", dt:year(parsed)
+
+LET dur = dt:duration(3600)   // 1 hour
+LET later = dt:add(now, dur)
+PRINT "In 1 hour: ", dt:tostring(later, "%H:%M")
+
+LET diff = dt:diff(later, now)
+PRINT "Difference: ", diff["hours"], " hours, ", diff["minutes"], " minutes"
+
+PRINT "Timestamp: ", dt:timestamp(now)
+```
+
+---
+
+## Random Module
+
+**File:** `examples/random.hi`  
+Generates random numbers and shuffles lists.
+
+```hi
+IMPORT "random" AS r
+
+LET dice = r:randint(1, 6)
+PRINT "Dice roll: ", dice
+
+LET prob = r:randfloat()
+PRINT "Random float [0,1): ", prob
+
+LET bytes = r:randbytes(4)
+PRINT "Random bytes: ", bytes
+
+LET list = [10, 20, 30, 40, 50]
+LET shuffled = r:shuffle(list)
+PRINT "Shuffled: ", shuffled
+
+LET pick = r:choice(list)
+PRINT "Random choice: ", pick
+```
+
+---
+
+## Regex Module
+
+**File:** `examples/regex.hi`  
+Regular expression matching, finding, replacing, splitting.  
+Note: backslashes in patterns must be escaped: `"\\d+"` for `\d+`.
+
+```hi
+IMPORT "regex" AS re
+
+LET text = "Hello 123 world 456!"
+
+// Match
+PRINT "Contains digits? ", re:match("\\d+", text)   // TRUE
+
+// Find first
+LET first = re:find("\\d+", text)
+PRINT "First number: ", first   // "123"
+
+// Find all
+LET all = re:find_all("\\d+", text)
+PRINT "All numbers: ", all      // ["123", "456"]
+
+// Replace
+LET replaced = re:replace("\\d+", text, "X")
+PRINT "Replaced: ", replaced    // "Hello X world X!"
+
+// Split
+LET parts = re:split("\\s+", "one two  three")
+PRINT "Split: ", parts          // ["one", "two", "three"]
+```
+
+---
+
+## Path Module
+
+**File:** `examples/path.hi`  
+Cross‑platform path manipulation.
+
+```hi
+IMPORT "path" AS p
+
+PRINT "join: ", p:join("usr", "local", "bin")
+PRINT "basename: ", p:basename("/foo/bar.txt")
+PRINT "dirname: ", p:dirname("/foo/bar.txt")
+PRINT "dirname (trailing slash): ", p:dirname("foo/bar/")
+PRINT "extname: ", p:extname("archive.tar.gz")
+PRINT "is_absolute: ", p:is_absolute("/home")
+PRINT "normalize: ", p:normalize("a/./b/../c")
 ```
 
 ---
@@ -412,5 +651,5 @@ PRINT "5 * 6 = ", product
 
 ---
 
-These examples cover most of the language features. Feel free to experiment by modifying them or writing your own
-programs.
+These examples cover most of the language features and its standard library. Feel free to experiment by modifying them
+or writing your own programs.

@@ -1,0 +1,16 @@
+IMPORT "json" AS json
+
+// Parse a JSON object (note: backslashes for quotes)
+LET obj = json:parse("{\"name\":\"Alice\",\"age\":30,\"hobbies\":[\"reading\",\"gaming\"]}")
+PRINT "Name: ", obj["name"]
+PRINT "Age: ", obj["age"]
+PRINT "Hobbies: ", obj["hobbies"]
+
+// Modify and stringify
+obj["age"] = 31
+LET json_str = json:stringify(obj)
+PRINT "Updated JSON: ", json_str
+
+// Parse an array
+LET arr = json:parse("[1, \"two\", false, null]")
+PRINT "Array: ", arr

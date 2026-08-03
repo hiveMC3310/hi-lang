@@ -1,5 +1,6 @@
 //! Read-Eval-Print Loop (REPL) for interactive Hi sessions.
 
+use crate::error::InterpError;
 use crate::interpreter::Interpreter;
 use crate::parser::Parser;
 use crate::parser::lexer::{Lexer, TokenKind};
@@ -106,46 +107,16 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
                             loaded_files.insert(abs_path.clone());
                             interpreter.current_file = Some(abs_path);
                             if let Err(e) = interpreter.run(&program) {
-                                eprintln!("{} {}", "error:".red().bold(), e);
-                                if let Some(span) = e.span() {
-                                    eprintln!(
-                                        "{} {} {} {} {}",
-                                        "at".yellow().bold(),
-                                        format!("line {}", span.start_line).cyan().bold(),
-                                        "column".yellow().bold(),
-                                        span.start_col.to_string().cyan().bold(),
-                                        format!("in file {}", path_str).yellow().bold()
-                                    );
-                                }
+                                print_error_repl(&e);
                             }
                         }
                         Err(e) => {
-                            eprintln!("{} {}", "parse error:".red().bold(), e);
-                            if let Some(span) = e.span() {
-                                eprintln!(
-                                    "{} {} {} {} {}",
-                                    "at".yellow().bold(),
-                                    format!("line {}", span.start_line).cyan().bold(),
-                                    "column".yellow().bold(),
-                                    span.start_col.to_string().cyan().bold(),
-                                    format!("in file {}", path_str).yellow().bold()
-                                );
-                            }
+                            print_error_repl(&e.into());
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("{} {}", "lex error:".red().bold(), e);
-                    if let Some(span) = e.span() {
-                        eprintln!(
-                            "{} {} {} {} {}",
-                            "at".yellow().bold(),
-                            format!("line {}", span.start_line).cyan().bold(),
-                            "column".yellow().bold(),
-                            span.start_col.to_string().cyan().bold(),
-                            format!("in file {}", path_str).yellow().bold()
-                        );
-                    }
+                    print_error_repl(&e.into());
                 }
             }
             continue;
@@ -163,25 +134,16 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
                     match parser.parse() {
                         Ok(program) => {
                             if let Err(e) = interpreter.run(&program) {
-                                eprintln!("{}", e);
+                                print_error_repl(&e);
                             }
                         }
                         Err(e) => {
-                            eprintln!("Parse error: {}", e);
-                            if let Some(span) = e.span() {
-                                eprintln!(
-                                    "  at line {}, column {}",
-                                    span.start_line, span.start_col
-                                );
-                            }
+                            print_error_repl(&e.into());
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("Lex error: {}", e);
-                    if let Some(span) = e.span() {
-                        eprintln!("  at line {}, column {}", span.start_line, span.start_col);
-                    }
+                    print_error_repl(&e.into());
                 }
             }
             buffer.clear();
@@ -224,5 +186,18 @@ fn parse_load_arg(input: &str) -> String {
         trimmed[1..trimmed.len() - 1].to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+fn print_error_repl(err: &InterpError) {
+    eprintln!("{}", format!("error: {}", err).red().bold());
+    if let Some(span) = err.span() {
+        eprintln!(
+            "{} {} {} {}",
+            "at".yellow().bold(),
+            format!("line {}", span.start_line).cyan().bold(),
+            "column".yellow().bold(),
+            span.start_col.to_string().cyan().bold(),
+        );
     }
 }

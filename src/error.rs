@@ -1,6 +1,7 @@
 //! Custom error types for the interpreter.
 
 use crate::ast::Span;
+use std::io;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -17,8 +18,17 @@ pub enum InterpError {
     #[error("Internal error: {0}")]
     Internal(String),
 
-    #[error("IO error: {0}")]
-    Io(#[from] std::io::Error),
+    #[error("IO error{}{}",
+        match .span {
+            Some(span) => format!(" at {}", span),
+            None => String::new()
+        },
+        .source
+    )]
+    Io {
+        source: std::io::Error,
+        span: Option<Span>,
+    },
 
     #[error("Function '{name}' not found at {span}")]
     FuncNotFound { name: String, span: Span },
@@ -38,18 +48,6 @@ pub enum InterpError {
 }
 
 impl InterpError {
-    pub fn line(&self) -> Option<usize> {
-        match self {
-            InterpError::Syntax { span, .. } => Some(span.start_line),
-            InterpError::Semantic { span, .. } => Some(span.start_line),
-            InterpError::Runtime { span, .. } => Some(span.start_line),
-            InterpError::FuncNotFound { span, .. } => Some(span.start_line),
-            InterpError::UnclosedBlock { span, .. } => Some(span.start_line),
-            InterpError::ImportError { span, .. } => Some(span.start_line),
-            _ => None,
-        }
-    }
-
     pub fn span(&self) -> Option<Span> {
         match self {
             InterpError::Syntax { span, .. } => Some(*span),
@@ -58,8 +56,15 @@ impl InterpError {
             InterpError::FuncNotFound { span, .. } => Some(*span),
             InterpError::UnclosedBlock { span, .. } => Some(*span),
             InterpError::ImportError { span, .. } => Some(*span),
+            InterpError::Io { span, .. } => *span,
             _ => None,
         }
+    }
+}
+
+impl From<io::Error> for InterpError {
+    fn from(source: io::Error) -> Self {
+        InterpError::Io { source, span: None }
     }
 }
 
@@ -80,24 +85,17 @@ pub struct ParseError {
 }
 
 impl ParseError {
-    pub fn line(&self) -> Option<usize> {
-        Some(self.span.start_line)
-    }
-
     pub fn span(&self) -> Option<Span> {
         Some(self.span)
     }
 }
 
 impl LexError {
-    pub fn line(&self) -> Option<usize> {
-        Some(self.span.start_line)
-    }
-
     pub fn span(&self) -> Option<Span> {
         Some(self.span)
     }
 }
+
 impl From<LexError> for InterpError {
     fn from(e: LexError) -> Self {
         InterpError::Syntax {

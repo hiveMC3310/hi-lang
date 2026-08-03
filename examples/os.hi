@@ -1,0 +1,33 @@
+IMPORT "os" AS os
+
+// Environment
+LET user = os:getenv("USER")
+PRINT "User: ", user
+
+os:setenv("MY_VAR", "hello")
+PRINT "MY_VAR = ", os:getenv("MY_VAR")
+os:unsetenv("MY_VAR")
+
+// Current directory
+LET cwd = os:cwd()
+PRINT "Current dir: ", cwd
+
+// List files
+LET files = os:listdir(".")
+PRINT "Files: ", files
+
+// Create and remove directory
+os:mkdir("temp")
+os:rmdir("temp")
+
+// File stats
+LET info = os:stat("os.hi")
+PRINT "Size: ", info["size"]
+PRINT "Is file? ", info["is_file"]
+
+// Existence
+PRINT "Exists? ", os:exists("somefile.txt")
+
+// Execute a command (shell dependent)
+LET exit_code = os:exec("echo 'Hello from shell'")
+PRINT "Exit code: ", exit_code

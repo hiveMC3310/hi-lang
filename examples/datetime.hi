@@ -1,0 +1,19 @@
+IMPORT "datetime" AS dt
+
+LET now = dt:now()
+PRINT "Local now: ", dt:tostring(now, "%Y-%m-%d %H:%M:%S")
+
+LET utc = dt:utcnow()
+PRINT "UTC now: ", dt:tostring(utc, "%Y-%m-%d %H:%M:%S")
+
+LET parsed = dt:fromstring("2026-08-03 15:30:45", "%Y-%m-%d %H:%M:%S")
+PRINT "Parsed year: ", dt:year(parsed)
+
+LET dur = dt:duration(3600)   // 1 hour
+LET later = dt:add(now, dur)
+PRINT "In 1 hour: ", dt:tostring(later, "%H:%M")
+
+LET diff = dt:diff(later, now)
+PRINT "Difference: ", diff["hours"], " hours, ", diff["minutes"], " minutes"
+
+PRINT "Timestamp: ", dt:timestamp(now)

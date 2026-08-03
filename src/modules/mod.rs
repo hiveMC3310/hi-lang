@@ -1,6 +1,20 @@
+//! Defines the module system for the Hi language.
+//!
+//! This module provides the core abstractions for built-in and user-defined modules.
+//! It includes the `Module` trait, which all modules must implement, along with
+//! concrete implementations for user modules (loaded from `.hi` files) and
+//! built-in modules (implemented in Rust).
+
+pub mod collections;
 pub mod core;
+pub mod datetime;
 pub mod io;
+pub mod json;
 pub mod math;
+pub mod os;
+pub mod path;
+pub mod random;
+pub mod regex;
 pub mod strings;
 
 use crate::ast::Span;
@@ -10,10 +24,32 @@ use crate::value::Value;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// Type alias for a built-in function implementation.
+///
+/// Built-in functions are Rust closures that take:
+/// - a mutable reference to the interpreter,
+/// - a slice of argument values,
+/// - a span for error reporting,
+/// and return a `Value` or an error.
 pub type BuiltinFn = Rc<dyn Fn(&mut Interpreter, &[Value], &Span) -> InterpResult<Value>>;
 
+/// Trait that all modules (built-in or user-defined) must implement.
 pub trait Module {
+    /// Retrieves the value of a variable exported by the module.
+    ///
+    /// Returns `None` if the variable does not exist.
     fn get_var(&self, name: &str) -> Option<Value>;
+
+    /// Calls a function exported by the module.
+    ///
+    /// # Arguments
+    /// * `name` – the name of the function.
+    /// * `args` – the arguments passed to the function.
+    /// * `interp` – mutable reference to the interpreter (for nested calls).
+    /// * `span` – source location for error reporting.
+    ///
+    /// # Returns
+    /// The function's return value, or an error.
     fn call_function(
         &self,
         name: &str,
@@ -22,10 +58,18 @@ pub trait Module {
         span: &Span,
     ) -> InterpResult<Value>;
 
+    /// Inlines the module's exports into the current interpreter environment.
+    ///
+    /// This is used when a module is imported without an alias (e.g., `IMPORT "math"`),
+    /// making its variables and functions directly accessible in the global scope.
     fn inline_into(&self, interp: &mut Interpreter) -> InterpResult<()>;
 }
 
+/// A module loaded from a user-provided `.hi` file.
+///
+/// It contains an environment with variables and functions defined in the file.
 pub struct UserModule {
+    /// The environment captured from the module file.
     pub env: Environment,
 }
 
@@ -92,8 +136,13 @@ impl Module for UserModule {
     }
 }
 
+/// A module implemented in Rust, providing built-in functionality.
+///
+/// It contains a map of exported variables and a map of exported functions.
 pub struct BuiltinModule {
+    /// Variables exported by the module (e.g., constants like `PI`).
     pub vars: HashMap<String, Value>,
+    /// Functions exported by the module (e.g., `sin`, `cos`).
     pub funcs: HashMap<String, BuiltinFn>,
 }
 

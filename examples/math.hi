@@ -1,0 +1,27 @@
+IMPORT "math" AS m
+
+PRINT "PI = ", m:PI
+PRINT "E = ", m:E
+
+PRINT "sin(PI/2) = ", m:sin(m:PI / 2)
+PRINT "sqrt(16) = ", m:sqrt(16)
+PRINT "abs(-5) = ", m:abs(-5)
+
+PRINT "ceil(3.2) = ", m:ceil(3.2)
+PRINT "floor(3.9) = ", m:floor(3.9)
+PRINT "round(3.5) = ", m:round(3.5)
+
+PRINT "torad(180) = ", m:torad(180)
+PRINT "todeg(PI) = ", m:todeg(m:PI)
+
+PRINT "min(5, 3) = ", m:min(5, 3)
+PRINT "max(5, 3) = ", m:max(5, 3)
+PRINT "min([7, 2, 9, 1]) = ", m:min([7, 2, 9, 1])
+PRINT "max([7, 2, 9, 1]) = ", m:max([7, 2, 9, 1])
+
+PRINT "clamp(5, 1, 10) = ", m:clamp(5, 1, 10)
+PRINT "clamp(0, 1, 10) = ", m:clamp(0, 1, 10)
+PRINT "clamp(15, 1, 10) = ", m:clamp(15, 1, 10)
+
+PRINT "log(E) = ", m:log(m:E)
+PRINT "exp(1) = ", m:exp(1)

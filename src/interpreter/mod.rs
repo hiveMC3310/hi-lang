@@ -163,9 +163,47 @@ impl Interpreter {
     }
 
     fn init_builtin_modules(&mut self) {
+        use crate::modules::collections::new_collections_module;
+        use crate::modules::datetime::new_datetime_module;
         use crate::modules::io::new_io_module;
+        use crate::modules::json::new_json_module;
         use crate::modules::math::new_math_module;
+        use crate::modules::os::new_os_module;
+        use crate::modules::path::new_path_module;
+        use crate::modules::random::new_random_module;
+        use crate::modules::regex::new_regex_module;
         use crate::modules::strings::new_strings_module;
+
+        let path = Rc::new(RefCell::new(new_path_module()));
+        self.builtin_modules
+            .insert("path".to_string(), path.clone());
+        self.env.declare("path".to_string(), Value::Module(path));
+
+        let regex = Rc::new(RefCell::new(new_regex_module()));
+        self.builtin_modules
+            .insert("regex".to_string(), regex.clone());
+        self.env.declare("regex".to_string(), Value::Module(regex));
+
+        let random = Rc::new(RefCell::new(new_random_module()));
+        self.builtin_modules
+            .insert("random".to_string(), random.clone());
+        self.env
+            .declare("random".to_string(), Value::Module(random));
+
+        let datetime = Rc::new(RefCell::new(new_datetime_module()));
+        self.builtin_modules
+            .insert("datetime".to_string(), datetime.clone());
+        self.env
+            .declare("datetime".to_string(), Value::Module(datetime));
+
+        let os = Rc::new(RefCell::new(new_os_module()));
+        self.builtin_modules.insert("os".to_string(), os.clone());
+        self.env.declare("os".to_string(), Value::Module(os));
+
+        let json = Rc::new(RefCell::new(new_json_module()));
+        self.builtin_modules
+            .insert("json".to_string(), json.clone());
+        self.env.declare("json".to_string(), Value::Module(json));
 
         let math = Rc::new(RefCell::new(new_math_module()));
         self.builtin_modules
@@ -181,6 +219,12 @@ impl Interpreter {
         let io = Rc::new(RefCell::new(new_io_module()));
         self.builtin_modules.insert("io".to_string(), io.clone());
         self.env.declare("io".to_string(), Value::Module(io));
+
+        let collections = Rc::new(RefCell::new(new_collections_module()));
+        self.builtin_modules
+            .insert("collections".to_string(), collections.clone());
+        self.env
+            .declare("collections".to_string(), Value::Module(collections));
     }
 
     pub fn set_argv(&mut self, argv: Vec<String>) {
@@ -285,12 +329,19 @@ impl Interpreter {
             Stmt::Input(prompt_opt, var, span) => {
                 if let Some(prompt) = prompt_opt {
                     print!("{}", prompt);
-                    std::io::stdout().flush().map_err(InterpError::Io)?;
+                    std::io::stdout().flush().map_err(|e| InterpError::Io {
+                        source: e,
+                        span: Some(*span),
+                    })?;
                 }
                 let mut input = String::new();
-                let bytes_read = std::io::stdin()
-                    .read_line(&mut input)
-                    .map_err(InterpError::Io)?;
+                let bytes_read =
+                    std::io::stdin()
+                        .read_line(&mut input)
+                        .map_err(|e| InterpError::Io {
+                            source: e,
+                            span: Some(*span),
+                        })?;
                 if bytes_read == 0 {
                     return Err(InterpError::Runtime {
                         span: *span,
@@ -677,7 +728,10 @@ impl Interpreter {
         alias: Option<&str>,
         span: &Span,
     ) -> InterpResult<()> {
-        let abs_path = path.canonicalize().map_err(InterpError::Io)?;
+        let abs_path = path.canonicalize().map_err(|e| InterpError::Io {
+            source: e,
+            span: Some(*span),
+        })?;
         // Cyclic check
         if self.load_stack.contains(&abs_path) {
             return Err(InterpError::CyclicImport {
@@ -695,7 +749,10 @@ impl Interpreter {
         let old_return = self.return_value.take();
         let old_break = self.break_flag;
 
-        let source = std::fs::read_to_string(&abs_path).map_err(InterpError::Io)?;
+        let source = std::fs::read_to_string(&abs_path).map_err(|e| InterpError::Io {
+            source: e,
+            span: Some(*span),
+        })?;
         let tokens = Lexer::tokenize(&source)?;
         let mut parser = Parser::new(&tokens);
         let program = parser.parse()?;

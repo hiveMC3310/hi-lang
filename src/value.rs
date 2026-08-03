@@ -92,7 +92,7 @@ impl std::hash::Hash for Value {
             Value::Float(f) => f.to_bits().hash(state),
             Value::String(s) => s.hash(state),
             Value::Bool(b) => b.hash(state),
-            Value::Nil => ().hash(state),
+            Value::Nil => {}
             Value::Function(name) => name.hash(state),
             Value::List(_) | Value::Dict(_) | Value::File(_) | Value::Module(_) => {
                 panic!("attempted to hash non‑hashable value")
