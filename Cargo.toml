@@ -29,3 +29,10 @@ thiserror = "2.0.18"
 [dev-dependencies]
 stdio-override = "0.2.0"
 tempfile = "3.27.0"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "z"
+strip = true
+panic = "abort"
