@@ -53,12 +53,12 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         if trimmed == ":vars" {
-            for (k, v) in &interpreter.env.vars {
+            for (k, v) in &interpreter.env.borrow().vars {
                 println!("{} = {}", k, v);
             }
-            if !interpreter.env.functions.is_empty() {
+            if !interpreter.env.borrow().functions.is_empty() {
                 println!("Functions:");
-                for (name, (params, _)) in &interpreter.env.functions {
+                for (name, (params, _)) in &interpreter.env.borrow().functions {
                     println!("  {}({})", name, params.join(", "));
                 }
             }

@@ -21,6 +21,7 @@ use crate::ast::Span;
 use crate::error::{InterpError, InterpResult};
 use crate::interpreter::{Environment, Interpreter};
 use crate::value::Value;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -70,12 +71,12 @@ pub trait Module {
 /// It contains an environment with variables and functions defined in the file.
 pub struct UserModule {
     /// The environment captured from the module file.
-    pub env: Environment,
+    pub env: Rc<RefCell<Environment>>,
 }
 
 impl Module for UserModule {
     fn get_var(&self, name: &str) -> Option<Value> {
-        self.env.vars.get(name).cloned()
+        self.env.borrow().vars.get(name).cloned()
     }
 
     fn call_function(
@@ -85,7 +86,7 @@ impl Module for UserModule {
         interp: &mut Interpreter,
         span: &Span,
     ) -> InterpResult<Value> {
-        if let Some((params, body)) = self.env.functions.get(name).cloned() {
+        if let Some((params, body)) = self.env.borrow().functions.get(name).cloned() {
             if args.len() != params.len() {
                 return Err(InterpError::Runtime {
                     span: *span,
@@ -98,12 +99,12 @@ impl Module for UserModule {
                 });
             }
 
-            let mut child_env = self.env.child();
+            let mut child_env = Environment::child(interp.env.clone());
             for (param, arg) in params.iter().zip(args) {
                 child_env.declare(param.clone(), arg.clone());
             }
 
-            let old_env = std::mem::replace(&mut interp.env, child_env);
+            let old_env = std::mem::replace(&mut interp.env, Rc::new(RefCell::new(child_env)));
             let old_return = interp.return_value.take();
 
             for stmt in body {
@@ -126,11 +127,16 @@ impl Module for UserModule {
     }
 
     fn inline_into(&self, interp: &mut Interpreter) -> InterpResult<()> {
-        for (k, v) in &self.env.vars {
-            interp.env.declare(k.clone(), v.clone());
+        let env_ref = self.env.borrow();
+        for (k, v) in &env_ref.vars {
+            interp.env.borrow_mut().declare(k.clone(), v.clone());
         }
-        for (k, v) in &self.env.functions {
-            interp.env.functions.insert(k.clone(), v.clone());
+        for (k, v) in &env_ref.functions {
+            interp
+                .env
+                .borrow_mut()
+                .functions
+                .insert(k.clone(), v.clone());
         }
         Ok(())
     }
@@ -167,7 +173,7 @@ impl Module for BuiltinModule {
 
     fn inline_into(&self, interp: &mut Interpreter) -> InterpResult<()> {
         for (k, v) in &self.vars {
-            interp.env.declare(k.clone(), v.clone());
+            interp.env.borrow_mut().declare(k.clone(), v.clone());
         }
         for (k, f) in &self.funcs {
             interp.global_functions.insert(k.clone(), f.clone());

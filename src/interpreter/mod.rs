@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 #[derive(Clone)]
 pub struct Environment {
-    pub parent: Option<Box<Environment>>,
+    pub parent: Option<Rc<RefCell<Environment>>>,
     pub vars: HashMap<String, Value>,
     pub functions: HashMap<String, (Vec<String>, Block)>,
 }
@@ -28,9 +28,9 @@ impl Environment {
         }
     }
 
-    pub fn child(&self) -> Self {
+    pub fn child(parent: Rc<RefCell<Environment>>) -> Self {
         Environment {
-            parent: Some(Box::new(self.clone())),
+            parent: Some(parent),
             vars: HashMap::new(),
             functions: HashMap::new(),
         }
@@ -40,7 +40,7 @@ impl Environment {
         if let Some(f) = self.functions.get(name) {
             Some(f.clone())
         } else if let Some(parent) = &self.parent {
-            parent.get_function(name)
+            parent.borrow().get_function(name)
         } else {
             None
         }
@@ -54,7 +54,7 @@ impl Environment {
         if let Some(v) = self.vars.get(name) {
             Some(v.clone())
         } else if let Some(parent) = &self.parent {
-            parent.get(name)
+            parent.borrow().get(name)
         } else {
             None
         }
@@ -69,7 +69,7 @@ impl Environment {
             self.vars.insert(name.to_string(), value);
             Ok(())
         } else if let Some(parent) = &mut self.parent {
-            parent.assign(name, value, span)
+            parent.borrow_mut().assign(name, value, span)
         } else {
             Err(InterpError::Runtime {
                 span: *span,
@@ -80,7 +80,7 @@ impl Environment {
 }
 
 pub struct Interpreter {
-    pub env: Environment,
+    pub env: Rc<RefCell<Environment>>,
     pub return_value: Option<Value>,
     pub break_flag: bool,
     pub loop_depth: usize,
@@ -95,7 +95,7 @@ pub struct Interpreter {
 impl Interpreter {
     pub fn new() -> Self {
         let mut s = Self {
-            env: Environment::new(),
+            env: Rc::new(RefCell::new(Environment::new())),
             global_functions: HashMap::new(),
             return_value: None,
             break_flag: false,
@@ -115,10 +115,12 @@ impl Interpreter {
     fn init_globals(&mut self) {
         // ARGS
         let args_list = Value::List(Rc::new(RefCell::new(Vec::new())));
-        self.env.declare("ARGS".to_string(), args_list);
+        self.env.borrow_mut().declare("ARGS".to_string(), args_list);
         // ARGS_DICT
         let args_dict = Value::Dict(Rc::new(RefCell::new(HashMap::new())));
-        self.env.declare("ARGS_DICT".to_string(), args_dict);
+        self.env
+            .borrow_mut()
+            .declare("ARGS_DICT".to_string(), args_dict);
     }
 
     fn init_global_functions(&mut self) {
@@ -177,53 +179,69 @@ impl Interpreter {
         let path = Rc::new(RefCell::new(new_path_module()));
         self.builtin_modules
             .insert("path".to_string(), path.clone());
-        self.env.declare("path".to_string(), Value::Module(path));
+        self.env
+            .borrow_mut()
+            .declare("path".to_string(), Value::Module(path));
 
         let regex = Rc::new(RefCell::new(new_regex_module()));
         self.builtin_modules
             .insert("regex".to_string(), regex.clone());
-        self.env.declare("regex".to_string(), Value::Module(regex));
+        self.env
+            .borrow_mut()
+            .declare("regex".to_string(), Value::Module(regex));
 
         let random = Rc::new(RefCell::new(new_random_module()));
         self.builtin_modules
             .insert("random".to_string(), random.clone());
         self.env
+            .borrow_mut()
             .declare("random".to_string(), Value::Module(random));
 
         let datetime = Rc::new(RefCell::new(new_datetime_module()));
         self.builtin_modules
             .insert("datetime".to_string(), datetime.clone());
         self.env
+            .borrow_mut()
             .declare("datetime".to_string(), Value::Module(datetime));
 
         let os = Rc::new(RefCell::new(new_os_module()));
         self.builtin_modules.insert("os".to_string(), os.clone());
-        self.env.declare("os".to_string(), Value::Module(os));
+        self.env
+            .borrow_mut()
+            .declare("os".to_string(), Value::Module(os));
 
         let json = Rc::new(RefCell::new(new_json_module()));
         self.builtin_modules
             .insert("json".to_string(), json.clone());
-        self.env.declare("json".to_string(), Value::Module(json));
+        self.env
+            .borrow_mut()
+            .declare("json".to_string(), Value::Module(json));
 
         let math = Rc::new(RefCell::new(new_math_module()));
         self.builtin_modules
             .insert("math".to_string(), math.clone());
-        self.env.declare("math".to_string(), Value::Module(math));
+        self.env
+            .borrow_mut()
+            .declare("math".to_string(), Value::Module(math));
 
         let strings = Rc::new(RefCell::new(new_strings_module()));
         self.builtin_modules
             .insert("strings".to_string(), strings.clone());
         self.env
+            .borrow_mut()
             .declare("strings".to_string(), Value::Module(strings));
 
         let io = Rc::new(RefCell::new(new_io_module()));
         self.builtin_modules.insert("io".to_string(), io.clone());
-        self.env.declare("io".to_string(), Value::Module(io));
+        self.env
+            .borrow_mut()
+            .declare("io".to_string(), Value::Module(io));
 
         let collections = Rc::new(RefCell::new(new_collections_module()));
         self.builtin_modules
             .insert("collections".to_string(), collections.clone());
         self.env
+            .borrow_mut()
             .declare("collections".to_string(), Value::Module(collections));
     }
 
@@ -280,11 +298,14 @@ impl Interpreter {
 
         // Update ARGS
         let args_rc = Rc::new(RefCell::new(positional));
-        self.env.declare("ARGS".to_string(), Value::List(args_rc));
+        self.env
+            .borrow_mut()
+            .declare("ARGS".to_string(), Value::List(args_rc));
 
         // Update ARGS_DICT
         let dict_rc = Rc::new(RefCell::new(dict));
         self.env
+            .borrow_mut()
             .declare("ARGS_DICT".to_string(), Value::Dict(dict_rc));
     }
 
@@ -303,14 +324,14 @@ impl Interpreter {
         match stmt {
             Stmt::Let(name, expr, _) => {
                 let val = self.eval_expr(expr)?;
-                self.env.declare(name.clone(), val);
+                self.env.borrow_mut().declare(name.clone(), val);
                 Ok(())
             }
             Stmt::Assign(left, right, span) => {
                 let value = self.eval_expr(right)?;
                 match **left {
                     Expr::Variable(ref name, _) => {
-                        self.env.assign(name, value, span)?;
+                        self.env.borrow_mut().assign(name, value, span)?;
                     }
                     Expr::Index(ref base, ref index, span) => {
                         let base_value = self.eval_expr(base)?;
@@ -350,7 +371,7 @@ impl Interpreter {
                 }
                 let input = input.trim_end_matches(&['\n', '\r'][..]);
                 let value = crate::utils::parse(input);
-                self.env.declare(var.clone(), value);
+                self.env.borrow_mut().declare(var.clone(), value);
                 Ok(())
             }
             Stmt::If(cond, then_block, else_block, _) => {
@@ -442,7 +463,9 @@ impl Interpreter {
                 let mut current = start;
                 self.loop_depth += 1;
                 while (step > 0 && current <= end) || (step < 0 && current >= end) {
-                    self.env.declare(var.clone(), Value::Int(current));
+                    self.env
+                        .borrow_mut()
+                        .declare(var.clone(), Value::Int(current));
                     for stmt in body {
                         self.execute_stmt(stmt)?;
                         if self.return_value.is_some() || self.break_flag {
@@ -469,6 +492,7 @@ impl Interpreter {
             }
             Stmt::Func(name, params, body, _) => {
                 self.env
+                    .borrow_mut()
                     .declare_function(name.clone(), params.clone(), body.clone());
                 Ok(())
             }
@@ -522,10 +546,10 @@ impl Interpreter {
             Expr::String(s, _) => Ok(Value::String(s.clone())),
             Expr::Bool(b, _) => Ok(Value::Bool(*b)),
             Expr::Variable(name, span) => {
-                if let Some(v) = self.env.get(name) {
+                if let Some(v) = self.env.borrow().get(name) {
                     return Ok(v);
                 }
-                if self.env.get_function(name).is_some() {
+                if self.env.borrow().get_function(name).is_some() {
                     return Ok(Value::Function(name.clone()));
                 }
                 Err(InterpError::Runtime {
@@ -567,7 +591,13 @@ impl Interpreter {
                     return f(self, &arg_vals, span);
                 }
 
-                if let Some((params, body)) = self.env.get_function(name) {
+                let func_opt = self
+                    .env
+                    .borrow()
+                    .get_function(name)
+                    .map(|(params, body)| (params.clone(), body.clone()));
+
+                if let Some((params, body)) = func_opt {
                     if args.len() != params.len() {
                         return Err(InterpError::Runtime {
                             span: *span,
@@ -580,12 +610,13 @@ impl Interpreter {
                         });
                     }
                     // Create a new environment for the function
-                    let mut child_env = self.env.child();
+                    let mut child_env = Environment::child(self.env.clone());
                     for (param, arg_expr) in params.iter().zip(args) {
                         let arg_val = self.eval_expr(arg_expr)?;
                         child_env.declare(param.clone(), arg_val);
                     }
-                    let old_env = std::mem::replace(&mut self.env, child_env);
+                    let old_env =
+                        std::mem::replace(&mut self.env, Rc::new(RefCell::new(child_env)));
                     let old_return = self.return_value.take();
                     // Execute body
                     for stmt in body {
@@ -744,8 +775,8 @@ impl Interpreter {
         }
 
         // New Env
-        let module_env = Environment::new();
-        let old_env = std::mem::replace(&mut self.env, module_env);
+        let module_env = Rc::new(RefCell::new(Environment::new()));
+        let old_env = std::mem::replace(&mut self.env, module_env.clone());
         let old_return = self.return_value.take();
         let old_break = self.break_flag;
 
@@ -770,11 +801,11 @@ impl Interpreter {
         self.load_stack.pop();
 
         // Save Env
-        let env = std::mem::replace(&mut self.env, old_env);
+        self.env = old_env;
         self.return_value = old_return;
         self.break_flag = old_break;
 
-        let module = Rc::new(RefCell::new(UserModule { env }));
+        let module = Rc::new(RefCell::new(UserModule { env: module_env }));
         self.modules_cache.insert(abs_path, module.clone());
         self.attach_module(module, alias, span)
     }
@@ -787,7 +818,9 @@ impl Interpreter {
     ) -> InterpResult<()> {
         match alias {
             Some(name) => {
-                self.env.declare(name.to_string(), Value::Module(module));
+                self.env
+                    .borrow_mut()
+                    .declare(name.to_string(), Value::Module(module));
                 Ok(())
             }
             None => {

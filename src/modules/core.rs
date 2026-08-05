@@ -1,6 +1,6 @@
 use crate::ast::Span;
 use crate::error::{InterpError, InterpResult};
-use crate::interpreter::Interpreter;
+use crate::interpreter::{Environment, Interpreter};
 use crate::value::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -40,14 +40,15 @@ pub fn call_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpR
         }
     };
 
-    let (params, body) =
-        interp
-            .env
-            .get_function(&func_name)
-            .ok_or_else(|| InterpError::Runtime {
-                span: *span,
-                message: format!("Function '{}' not found", func_name),
-            })?;
+    // --- Исправление 1: получаем функцию через borrow ---
+    let (params, body) = interp
+        .env
+        .borrow()
+        .get_function(&func_name)
+        .ok_or_else(|| InterpError::Runtime {
+            span: *span,
+            message: format!("Function '{}' not found", func_name),
+        })?;
     let call_args = &args[1..];
     if call_args.len() != params.len() {
         return Err(InterpError::Runtime {
@@ -63,11 +64,14 @@ pub fn call_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpR
 
     let arg_values: Vec<Value> = call_args.iter().cloned().collect();
 
-    let mut child_env = interp.env.child();
+    // --- Исправление 2: создаём дочернее окружение от текущего (интерпретатора) ---
+    let mut child_env = Environment::child(interp.env.clone());
     for (param, arg_val) in params.iter().zip(arg_values) {
         child_env.declare(param.clone(), arg_val);
     }
-    let old_env = std::mem::replace(&mut interp.env, child_env);
+
+    // --- Исправление 3: заменяем окружение, сохраняем старое ---
+    let old_env = std::mem::replace(&mut interp.env, Rc::new(RefCell::new(child_env)));
     let old_return = interp.return_value.take();
 
     for stmt in body {
@@ -77,6 +81,8 @@ pub fn call_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpR
         }
     }
     let result = interp.return_value.take().unwrap_or(Value::Nil);
+
+    // --- Восстанавливаем ---
     interp.env = old_env;
     interp.return_value = old_return;
     Ok(result)
