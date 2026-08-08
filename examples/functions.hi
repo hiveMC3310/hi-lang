@@ -8,7 +8,7 @@ END
 LET message = greet("World")
 PRINT message
 
-// Function with multiple parameters
+/// Function with multiple parameters
 FUNC add(a, b)
     RET a + b
 END

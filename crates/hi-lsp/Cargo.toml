@@ -1,0 +1,21 @@
+[package]
+name = "hi-lsp"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+hi-common = { path = "../hi-common" }
+hi-interpreter = { path = "../hi-interpreter" }
+hi-analyzer = { path = "../hi-analyzer" }
+lsp-types = "0.97.0"
+tokio = { version = "1.53.1", features = ["full"] }
+tower-lsp-server = "0.23.0"
+serde = "1.0"
+serde_json = "1.0"

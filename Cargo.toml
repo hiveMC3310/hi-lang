@@ -1,5 +1,12 @@
-[package]
-name = "hi-interpreter"
+[workspace]
+resolver = "2"
+members = [
+    "crates/hi-analyzer", "crates/hi-common",
+    "crates/hi-interpreter",
+    "crates/hi-lsp",
+]
+
+[workspace.package]
 version = "2.0.0"
 edition = "2024"
 description = "A minimalist, dynamically typed interpreted language with BASIC-like syntax"
@@ -9,30 +16,3 @@ documentation = "https://hiveMC3310.github.io/hi-lang"
 readme = "README.md"
 keywords = ["language", "interpreter", "scripting", "rust"]
 categories = ["command-line-utilities", "development-tools"]
-
-[[bin]]
-name = "hi"
-path = "src/main.rs"
-
-[dependencies]
-anyhow = "1.0.103"
-chrono = "0.4.45"
-clap = { version = "4.6.2", features = ["derive"] }
-colored = "3.1.1"
-rand = "0.10.2"
-regex = "1.13.1"
-rustyline = "18.0.1"
-serde = "1.0.229"
-serde_json = "1.0.151"
-thiserror = "2.0.18"
-
-[dev-dependencies]
-stdio-override = "0.2.0"
-tempfile = "3.27.0"
-
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = "z"
-strip = true
-panic = "abort"
