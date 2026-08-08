@@ -1,5 +1,6 @@
 // Library module with utility functions
 
+/// doc
 FUNC greet(name)
     RET concat("Hello, ", name)
 END

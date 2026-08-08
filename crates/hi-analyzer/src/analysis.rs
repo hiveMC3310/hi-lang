@@ -5,7 +5,11 @@ use crate::symbol::{Symbol, SymbolKind};
 use hi_common::Symbol as HiSymbol;
 use hi_interpreter::ast::{Expr, Program, Span, Stmt};
 use hi_interpreter::builtins;
+use hi_interpreter::parser::Parser;
+use hi_interpreter::parser::lexer::Lexer;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock as StdRwLock};
 
 // -----------------------------------------------------------------------------
 // AnalysisResult
@@ -28,9 +32,9 @@ pub struct AnalysisError {
 
 #[derive(Debug, Clone)]
 pub struct ScopeInfo {
-    pub parent: Option<usize>, // индекс в AnalysisResult.scopes
-    pub span: Span,            // диапазон всего блока, в котором действует скоуп
-    pub symbols: Vec<usize>,   // индексы в AnalysisResult.symbols
+    pub parent: Option<usize>,
+    pub span: Span,
+    pub symbols: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -40,6 +44,7 @@ pub struct AnalysisResult {
     pub uses: Vec<(Span, HiSymbol)>,
     pub module_calls: Vec<(Span, String, String)>,
     pub imported_modules: HashSet<HiSymbol>,
+    pub loaded_module_exports: HashMap<HiSymbol, Arc<Vec<SymbolInfo>>>,
     pub module_accesses: Vec<(Span, String, String)>,
     pub module_aliases: HashMap<HiSymbol, HiSymbol>,
     pub scopes: Vec<ScopeInfo>,
@@ -82,7 +87,6 @@ impl AnalysisResult {
         &self.symbols
     }
 
-    /// Находит самый глубокий скоуп, содержащий заданную позицию.
     pub fn scope_at(&self, line: usize, col: usize) -> Option<&ScopeInfo> {
         self.scopes.iter().rev().find(|scope| {
             scope.span.start_line <= line
@@ -92,7 +96,6 @@ impl AnalysisResult {
         })
     }
 
-    /// Собирает индексы видимых символов из указанного скоупа и всех его родителей.
     pub fn visible_symbol_indices(&self, scope_idx: usize) -> Vec<usize> {
         let mut indices = Vec::new();
         let mut current = Some(scope_idx);
@@ -111,13 +114,14 @@ impl AnalysisResult {
 }
 
 // -----------------------------------------------------------------------------
-// Analyzer (глобальный, иммутабельный)
+// Analyzer
 // -----------------------------------------------------------------------------
 
 pub struct Analyzer {
     pub global_symbols: Vec<SymbolInfo>,
+    pub builtin_module_names: Vec<HiSymbol>,
     global_scope: Scope,
-    builtin_module_names: Vec<HiSymbol>,
+    module_cache: StdRwLock<HashMap<PathBuf, Arc<Vec<SymbolInfo>>>>,
 }
 
 impl Analyzer {
@@ -152,12 +156,12 @@ impl Analyzer {
             global_scope: scope,
             global_symbols,
             builtin_module_names,
+            module_cache: StdRwLock::new(HashMap::new()),
         }
     }
 
-    pub fn analyze(&self, program: &Program) -> AnalysisResult {
+    pub fn analyze(&self, program: &Program, current_file: Option<&Path>) -> AnalysisResult {
         let mut result = AnalysisResult::default();
-        // Корневой скоуп с неограниченным span
         result.scopes.push(ScopeInfo {
             parent: None,
             span: Span {
@@ -178,6 +182,8 @@ impl Analyzer {
             builtin_module_names: self.builtin_module_names.as_slice(),
             depth: 0,
             current_scope: 0,
+            analyzer: self,
+            current_file,
         };
 
         for stmt in &program.stmts {
@@ -185,22 +191,47 @@ impl Analyzer {
         }
 
         result.module_aliases = aliases;
-
-        eprintln!(
-            "[analyzer] Final module_aliases: {:?}",
-            result
-                .module_aliases
-                .iter()
-                .map(|(k, v)| format!("{} -> {}", k, v))
-                .collect::<Vec<_>>()
-        );
-
         result
+    }
+
+    pub fn analyze_module(&self, program: &Program) -> Vec<SymbolInfo> {
+        let mut result = AnalysisResult::default();
+        result.scopes.push(ScopeInfo {
+            parent: None,
+            span: Span {
+                start_line: 1,
+                start_col: 1,
+                end_line: usize::MAX,
+                end_col: usize::MAX,
+            },
+            symbols: vec![],
+        });
+
+        let mut file_scope = self.global_scope.child();
+        let mut aliases = HashMap::new();
+        let mut file_analyzer = FileAnalyzer {
+            scope: &mut file_scope,
+            result: &mut result,
+            module_aliases: &mut aliases,
+            builtin_module_names: self.builtin_module_names.as_slice(),
+            depth: 0,
+            current_scope: 0,
+            analyzer: self,
+            current_file: None,
+        };
+        for stmt in &program.stmts {
+            file_analyzer.analyze_stmt(stmt);
+        }
+        result.scopes[0]
+            .symbols
+            .iter()
+            .map(|&idx| result.symbols[idx].clone())
+            .collect()
     }
 }
 
 // -----------------------------------------------------------------------------
-// Временный анализатор одного файла
+// FileAnalyzer
 // -----------------------------------------------------------------------------
 
 struct FileAnalyzer<'a> {
@@ -210,6 +241,8 @@ struct FileAnalyzer<'a> {
     builtin_module_names: &'a [HiSymbol],
     depth: usize,
     current_scope: usize,
+    analyzer: &'a Analyzer,
+    current_file: Option<&'a Path>,
 }
 
 impl<'a> FileAnalyzer<'a> {
@@ -221,14 +254,12 @@ impl<'a> FileAnalyzer<'a> {
                 self.analyze_expr(expr);
             }
             Func(name, params, body, doc, span) => {
-                // Определяем саму функцию в текущем скоупе
                 self.define_symbol(
                     *name,
                     SymbolKind::Function(params.clone()),
                     *span,
                     doc.clone(),
                 );
-                // Создаём дочерний скоуп для тела функции
                 let new_scope_idx = self.result.scopes.len();
                 self.result.scopes.push(ScopeInfo {
                     parent: Some(self.current_scope),
@@ -238,7 +269,6 @@ impl<'a> FileAnalyzer<'a> {
                 let old_scope_idx = self.current_scope;
                 self.current_scope = new_scope_idx;
 
-                // Переключаем символьный скоуп
                 let child = self.scope.child();
                 let old_scope_env = std::mem::replace(self.scope, child);
                 self.depth += 1;
@@ -283,10 +313,7 @@ impl<'a> FileAnalyzer<'a> {
                 if let Some(step) = step {
                     self.analyze_expr(step);
                 }
-                // Переменная цикла видна во внешнем скоупе (как в интерпретаторе)
                 self.define_symbol(*var, SymbolKind::Variable, *span, None);
-                // Тело цикла не создаёт отдельного скоупа, поэтому depth и current_scope не меняем,
-                // но вложенные стейтменты всё равно попадут в текущий скоуп (который может быть глобальным или функциональным)
                 for s in body {
                     self.analyze_stmt(s);
                 }
@@ -305,7 +332,6 @@ impl<'a> FileAnalyzer<'a> {
                 self.define_symbol(*var, SymbolKind::Variable, *span, None);
             }
             Import(path, alias, span) => {
-                eprintln!("[analyzer] Import: path={:?}, alias={:?}", path, alias);
                 self.analyze_import(path, *alias, *span);
             }
             Break(_) => {}
@@ -375,68 +401,100 @@ impl<'a> FileAnalyzer<'a> {
     }
 
     fn analyze_import(&mut self, path: &str, alias: Option<HiSymbol>, span: Span) {
-        let module_name = path.trim_end_matches(".hi").to_string();
-        let module_sym = hi_common::intern(&module_name);
+        let module_name = path.trim_end_matches(".hi");
+        let module_sym = hi_common::intern(module_name);
 
-        eprintln!(
-            "[analyzer] analyze_import: path='{}', module_sym='{}', alias={:?}",
-            path,
-            hi_common::resolve(module_sym),
-            alias.map(|s| s.to_string())
-        );
-        eprintln!(
-            "[analyzer] builtin_module_names: {:?}",
-            self.builtin_module_names
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-        );
+        if self.builtin_module_names.contains(&module_sym) {
+            if self.scope.lookup(module_sym).is_none() {
+                self.define_symbol(module_sym, SymbolKind::Module, span, None);
+            }
+            self.result.imported_modules.insert(module_sym);
 
-        // Проверяем, существует ли модуль
-        if !self.builtin_module_names.contains(&module_sym) {
-            eprintln!("[analyzer] Module '{}' not found", module_name);
-            self.error(&span, &format!("Module '{}' not found", module_name));
+            if let Some(alias_sym) = alias {
+                self.module_aliases.insert(alias_sym, module_sym);
+                self.define_symbol(alias_sym, SymbolKind::Module, span, None);
+                self.result.module_aliases.insert(alias_sym, module_sym);
+            } else {
+                if let Some(funcs) = builtins::get_module_functions_map().get(&module_sym) {
+                    for mf in funcs {
+                        self.define_symbol(
+                            mf.name,
+                            SymbolKind::BuiltinFunction(mf.params.clone()),
+                            span,
+                            Some(mf.doc.to_string()),
+                        );
+                    }
+                }
+                if let Some(vars) = builtins::get_module_variables_map().get(&module_sym) {
+                    for var_sym in vars {
+                        self.define_symbol(*var_sym, SymbolKind::Variable, span, None);
+                    }
+                }
+            }
             return;
         }
+        let base_dir = self
+            .current_file
+            .and_then(|p| p.parent())
+            .unwrap_or_else(|| Path::new("."));
+        let import_path = base_dir.join(path);
+        let abs_path = import_path.canonicalize().unwrap_or(import_path);
 
-        // Всегда добавляем оригинальное имя модуля в область видимости (если ещё не добавлено)
+        let symbols = {
+            let cache = self.analyzer.module_cache.read().unwrap();
+            if let Some(cached) = cache.get(&abs_path) {
+                cached.clone()
+            } else {
+                drop(cache);
+                let source = match std::fs::read_to_string(&abs_path) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        self.error(&span, &format!("Cannot read module '{}'", path));
+                        return;
+                    }
+                };
+                let tokens = match Lexer::tokenize(&source) {
+                    Ok(t) => t,
+                    Err(_) => {
+                        self.error(&span, "Lexer error in module");
+                        return;
+                    }
+                };
+                let mut parser = Parser::new(&tokens);
+                let program = match parser.parse() {
+                    Ok(p) => p,
+                    Err(_) => {
+                        self.error(&span, "Parser error in module");
+                        return;
+                    }
+                };
+                let syms = self.analyzer.analyze_module(&program);
+                let syms = Arc::new(syms);
+                self.analyzer
+                    .module_cache
+                    .write()
+                    .unwrap()
+                    .insert(abs_path, syms.clone());
+                syms
+            }
+        };
+
         if self.scope.lookup(module_sym).is_none() {
             self.define_symbol(module_sym, SymbolKind::Module, span, None);
         }
+        self.result.imported_modules.insert(module_sym);
+        self.result
+            .loaded_module_exports
+            .insert(module_sym, symbols.clone());
 
         if let Some(alias_sym) = alias {
-            // Добавляем алиас как отдельный символ, указывающий на модуль
             self.module_aliases.insert(alias_sym, module_sym);
             self.define_symbol(alias_sym, SymbolKind::Module, span, None);
             self.result.module_aliases.insert(alias_sym, module_sym);
-            self.result.imported_modules.insert(module_sym);
-            eprintln!(
-                "[analyzer] Added alias: {} -> {}",
-                hi_common::resolve(alias_sym),
-                hi_common::resolve(module_sym)
-            );
         } else {
-            // Без алиаса – инлайним функции и переменные модуля (они уже доступны по имени модуля)
-            if let Some(funcs) = builtins::get_module_functions_map().get(&module_sym) {
-                for mf in funcs {
-                    self.define_symbol(
-                        mf.name,
-                        SymbolKind::BuiltinFunction(mf.params.clone()),
-                        span,
-                        Some(mf.doc.to_string()),
-                    );
-                }
+            for sym in symbols.iter() {
+                self.define_symbol(sym.name, sym.kind.clone(), span, sym.doc.clone());
             }
-            if let Some(vars) = builtins::get_module_variables_map().get(&module_sym) {
-                for var_sym in vars {
-                    self.define_symbol(*var_sym, SymbolKind::Variable, span, None);
-                }
-            }
-            self.result.imported_modules.insert(module_sym);
-            eprintln!(
-                "[analyzer] Imported module (no alias): {}",
-                hi_common::resolve(module_sym)
-            );
         }
     }
 
@@ -467,7 +525,6 @@ impl<'a> FileAnalyzer<'a> {
             defined_at: Some(span),
             doc,
         });
-        // Добавляем в текущий скоуп
         self.result.scopes[self.current_scope].symbols.push(idx);
     }
 

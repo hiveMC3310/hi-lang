@@ -8,7 +8,7 @@ use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
 use hi_analyzer::analysis::{AnalysisResult, Analyzer, SymbolInfo};
 use hi_analyzer::symbol;
-use hi_interpreter::ast::{Program, Span};
+use hi_interpreter::ast::Span;
 use hi_interpreter::builtins::{self, KEYWORDS};
 use hi_interpreter::parser::Parser;
 use hi_interpreter::parser::lexer::Lexer;
@@ -20,7 +20,6 @@ struct Backend {
     analyzer: Arc<Analyzer>,
 }
 
-/// Конвертирует наш Span в LSP Range.
 fn span_to_range(span: &Span) -> Range {
     Range {
         start: Position {
@@ -44,7 +43,7 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(false),
-                    trigger_characters: Some(vec![".".to_string(), ":".to_string()]),
+                    trigger_characters: Some(vec![":".to_string(), "\"".to_string()]),
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
@@ -65,23 +64,19 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let uri = params.text_document.uri;
+        let uri = params.text_document.uri.clone();
         let text = params.text_document.text;
         self.documents
             .write()
             .expect("RwLock poisoned")
             .insert(uri.clone(), text.clone());
 
-        let (diagnostics, analysis, ok) = self.analyze_document(&text);
+        let (diagnostics, analysis, ok) = self.analyze_document(&text, &uri);
         if ok {
             self.analysis_cache
                 .write()
                 .expect("RwLock poisoned")
                 .insert(uri.clone(), analysis);
-        } else {
-            // Если анализ не удался, возможно, уже есть кэш – не трогаем
-            // Или можно удалить кэш, чтобы не было ложных данных
-            // Но лучше оставить старый кэш, если он есть.
         }
         self.client
             .publish_diagnostics(uri, diagnostics, None)
@@ -89,7 +84,7 @@ impl LanguageServer for Backend {
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let uri = params.text_document.uri;
+        let uri = params.text_document.uri.clone();
         if let Some(change) = params.content_changes.first() {
             let text = change.text.clone();
             self.documents
@@ -97,14 +92,13 @@ impl LanguageServer for Backend {
                 .expect("RwLock poisoned")
                 .insert(uri.clone(), text.clone());
 
-            let (diagnostics, analysis, ok) = self.analyze_document(&text);
+            let (diagnostics, analysis, ok) = self.analyze_document(&text, &uri);
             if ok {
                 self.analysis_cache
                     .write()
                     .expect("RwLock poisoned")
                     .insert(uri.clone(), analysis);
             }
-            // Если не ok, кэш не обновляем – остаётся старый валидный результат
             self.client
                 .publish_diagnostics(uri, diagnostics, None)
                 .await;
@@ -135,7 +129,7 @@ impl LanguageServer for Backend {
         };
 
         if let Some(result) = analysis {
-            // 1. Проверка вызова функции модуля (module:func)
+            // 1. module:func
             if let Some((span, module_str, func_str)) =
                 result.module_calls.iter().find(|(sp, _, _)| {
                     sp.start_line <= line
@@ -146,6 +140,8 @@ impl LanguageServer for Backend {
             {
                 let module_sym = hi_common::intern(module_str);
                 let func_sym = hi_common::intern(func_str);
+
+                // Проверяем встроенные модули
                 let module_funcs = builtins::get_module_functions_map();
                 if let Some(funcs) = module_funcs.get(&module_sym) {
                     if let Some(mf) = funcs.iter().find(|f| f.name == func_sym) {
@@ -178,9 +174,50 @@ impl LanguageServer for Backend {
                         }));
                     }
                 }
+
+                // Проверяем пользовательские модули
+                if let Some(symbols) = result.loaded_module_exports.get(&module_sym) {
+                    if let Some(sym) = symbols.iter().find(|s| s.name == func_sym) {
+                        let params_str = match &sym.kind {
+                            symbol::SymbolKind::Function(params)
+                            | symbol::SymbolKind::BuiltinFunction(params) => {
+                                if params.is_empty() {
+                                    "".to_string()
+                                } else if params.len() == 1
+                                    && hi_common::resolve(params[0]) == "..."
+                                {
+                                    "...".to_string()
+                                } else {
+                                    params
+                                        .iter()
+                                        .map(|s| s.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                }
+                            }
+                            _ => String::new(),
+                        };
+                        let mut content = format!(
+                            "```hi\n{}:{}({})\n```\n\n*function*",
+                            module_str, func_str, params_str
+                        );
+                        // Временная диагностика: показываем состояние документации
+                        if let Some(doc) = &sym.doc {
+                            content.push_str("\n\n---\n");
+                            content.push_str(doc);
+                        }
+                        return Ok(Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: content,
+                            }),
+                            range: Some(span_to_range(span)),
+                        }));
+                    }
+                }
             }
 
-            // 1.5 Проверка доступа к переменной модуля (module:var)
+            // 1.5 module:var
             if let Some((span, module_str, var_str)) =
                 result.module_accesses.iter().find(|(sp, _, _)| {
                     sp.start_line <= line
@@ -191,6 +228,8 @@ impl LanguageServer for Backend {
             {
                 let module_sym = hi_common::intern(module_str);
                 let var_sym = hi_common::intern(var_str);
+
+                // Встроенные переменные модулей
                 let module_vars = builtins::get_module_variables_map();
                 if let Some(vars) = module_vars.get(&module_sym) {
                     if vars.contains(&var_sym) {
@@ -205,9 +244,24 @@ impl LanguageServer for Backend {
                         }));
                     }
                 }
+
+                // Пользовательские переменные модулей
+                if let Some(symbols) = result.loaded_module_exports.get(&module_sym) {
+                    if let Some(_) = symbols.iter().find(|s| s.name == var_sym) {
+                        let content =
+                            format!("```hi\n{}:{}\n```\n\n*variable*", module_str, var_str);
+                        return Ok(Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: content,
+                            }),
+                            range: Some(span_to_range(span)),
+                        }));
+                    }
+                }
             }
 
-            // 2. Поиск символа по определению (попадание в сам идентификатор)
+            // 2. symbol at
             if let Some(sym) = result.symbol_at(line, col) {
                 let (kind_str, params_opt) = match &sym.kind {
                     symbol::SymbolKind::Variable => ("variable", None),
@@ -248,7 +302,7 @@ impl LanguageServer for Backend {
                 }));
             }
 
-            // 3. Поиск использования (имя уже разрешено, ищем символ по имени)
+            // 3. use
             if let Some((use_span, name)) = result.use_at(line, col) {
                 let sym = result
                     .symbols
@@ -307,23 +361,45 @@ impl LanguageServer for Backend {
 
         let trigger_character = params.context.and_then(|ctx| ctx.trigger_character);
 
-        // --- БЕРЁМ АНАЛИЗ ТОЛЬКО ИЗ КЭША (он всегда валидный) ---
         let analysis = {
             let cache = self.analysis_cache.read().expect("RwLock poisoned");
-            if let Some(cached) = cache.get(&uri).cloned() {
-                cached
-            } else {
-                return Ok(Some(CompletionResponse::Array(vec![])));
+            match cache.get(&uri) {
+                Some(cached) => cached.clone(),
+                None => return Ok(Some(CompletionResponse::Array(vec![]))),
             }
         };
 
-        eprintln!(
-            "[completion] analysis.module_aliases = {:?}",
-            analysis.module_aliases
-        );
-
-        // Контекстное автодополнение после ':'
+        // Контекстное завершение после ':'
         if let Some(ref ch) = trigger_character {
+            if ch == "\"" {
+                let documents = self.documents.read().expect("RwLock poisoned");
+                if let Some(text) = documents.get(&uri) {
+                    let line_text = text.lines().nth(line).unwrap_or("");
+                    let before_cursor = &line_text[..col.min(line_text.len())];
+                    if let Some(pos) = before_cursor.rfind('"') {
+                        let before_quote = &before_cursor[..pos];
+                        if let Some(import_pos) = before_quote.rfind("IMPORT") {
+                            let after_import = &before_quote[import_pos + 6..].trim();
+                            let prefix = after_import.trim();
+                            let mut items = Vec::new();
+                            for module_sym in &self.analyzer.builtin_module_names {
+                                let name = hi_common::resolve(*module_sym);
+                                if name.starts_with(prefix) {
+                                    items.push(CompletionItem {
+                                        label: name.clone(),
+                                        kind: Some(CompletionItemKind::MODULE),
+                                        detail: Some("built-in module".to_string()),
+                                        insert_text: Some(name),
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+                            return Ok(Some(CompletionResponse::Array(items)));
+                        }
+                    }
+                }
+            }
+
             if ch == ":" {
                 let documents = self.documents.read().expect("RwLock poisoned");
                 if let Some(text) = documents.get(&uri) {
@@ -334,12 +410,6 @@ impl LanguageServer for Backend {
                         if !ident_candidate.is_empty() {
                             let module_name =
                                 ident_candidate.split_whitespace().last().unwrap_or("");
-
-                            eprintln!(
-                                "[completion] detected module_name before ':' = '{}'",
-                                module_name
-                            );
-
                             if !module_name.is_empty() {
                                 let module_sym = hi_common::intern(module_name);
 
@@ -349,20 +419,11 @@ impl LanguageServer for Backend {
                                     .copied()
                                     .unwrap_or(module_sym);
 
-                                eprintln!(
-                                    "[completion] module_sym='{}', real_module_sym='{}'",
-                                    hi_common::resolve(module_sym),
-                                    hi_common::resolve(real_module_sym)
-                                );
-
-                                let is_imported =
-                                    analysis.imported_modules.contains(&real_module_sym);
-                                eprintln!("[completion] is_imported = {}", is_imported);
-
-                                if !is_imported {
+                                if !analysis.imported_modules.contains(&real_module_sym) {
                                     return Ok(Some(CompletionResponse::Array(vec![])));
                                 }
 
+                                // Встроенные модули
                                 let module_funcs = builtins::get_module_functions_map();
                                 if let Some(funcs) = module_funcs.get(&real_module_sym) {
                                     let mut items = Vec::new();
@@ -390,6 +451,36 @@ impl LanguageServer for Backend {
                                     }
                                     return Ok(Some(CompletionResponse::Array(items)));
                                 }
+
+                                // Пользовательские модули
+                                if let Some(symbols) =
+                                    analysis.loaded_module_exports.get(&real_module_sym)
+                                {
+                                    let mut items = Vec::new();
+                                    for sym in symbols.iter() {
+                                        let (kind, detail) = match &sym.kind {
+                                            symbol::SymbolKind::Function(_)
+                                            | symbol::SymbolKind::BuiltinFunction(_) => {
+                                                (CompletionItemKind::FUNCTION, sym.kind.signature())
+                                            }
+                                            symbol::SymbolKind::Variable => (
+                                                CompletionItemKind::VARIABLE,
+                                                "variable".to_string(),
+                                            ),
+                                            _ => continue,
+                                        };
+                                        items.push(CompletionItem {
+                                            label: sym.name.to_string(),
+                                            kind: Some(kind),
+                                            detail: Some(detail),
+                                            ..Default::default()
+                                        });
+                                    }
+                                    return Ok(Some(CompletionResponse::Array(items)));
+                                }
+
+                                // Модуль не найден
+                                return Ok(Some(CompletionResponse::Array(vec![])));
                             }
                         }
                     }
@@ -397,7 +488,7 @@ impl LanguageServer for Backend {
             }
         }
 
-        // Обычное завершение (ключевые слова + символы из анализа)
+        // Обычное завершение
         let mut items = Vec::new();
         for kw in KEYWORDS {
             items.push(CompletionItem {
@@ -478,7 +569,7 @@ impl LanguageServer for Backend {
         if let Some(result) = analysis {
             if let Some(def_span) = result.definition_at(line, col) {
                 return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                    uri: uri.clone(),
+                    uri,
                     range: span_to_range(&def_span),
                 })));
             }
@@ -497,15 +588,13 @@ impl Backend {
         }
     }
 
-    /// Анализирует документ и возвращает (диагностика, результат анализа).
-    fn analyze_document(&self, text: &str) -> (Vec<Diagnostic>, AnalysisResult, bool) {
+    fn analyze_document(&self, text: &str, uri: &Uri) -> (Vec<Diagnostic>, AnalysisResult, bool) {
         let mut diagnostics = Vec::new();
 
-        // Лексер
         let tokens = match Lexer::tokenize(text) {
             Ok(t) => t,
             Err(e) => {
-                let span = e.span().unwrap_or_else(|| Span {
+                let span = e.span().unwrap_or(Span {
                     start_line: 0,
                     start_col: 0,
                     end_line: 0,
@@ -521,12 +610,11 @@ impl Backend {
             }
         };
 
-        // Парсер
         let mut parser = Parser::new(&tokens);
         let program = match parser.parse() {
             Ok(p) => p,
             Err(e) => {
-                let span = e.span().unwrap_or_else(|| Span {
+                let span = e.span().unwrap_or(Span {
                     start_line: 0,
                     start_col: 0,
                     end_line: 0,
@@ -538,30 +626,12 @@ impl Backend {
                     message: e.message,
                     ..Default::default()
                 });
-                // Возвращаем пустой результат, но с флагом false
                 return (diagnostics, AnalysisResult::default(), false);
             }
         };
 
-        // Семантический анализ (всегда выполняется, даже если есть ошибки внутри)
-        let result = self.analyzer.analyze(&program);
-
-        eprintln!(
-            "[lsp] analyze_document: imported_modules = {:?}",
-            result
-                .imported_modules
-                .iter()
-                .map(|s| s.to_string())
-                .collect::<Vec<_>>()
-        );
-        eprintln!(
-            "[lsp] analyze_document: module_aliases = {:?}",
-            result
-                .module_aliases
-                .iter()
-                .map(|(k, v)| format!("{} -> {}", k, v))
-                .collect::<Vec<_>>()
-        );
+        let path = uri.to_file_path();
+        let result = self.analyzer.analyze(&program, path.as_deref());
 
         for error in &result.errors {
             diagnostics.push(Diagnostic {
@@ -572,7 +642,6 @@ impl Backend {
             });
         }
 
-        // Успешный анализ (даже если есть семантические ошибки)
         (diagnostics, result, true)
     }
 }
