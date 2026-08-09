@@ -32,6 +32,18 @@ impl<'a> Parser<'a> {
         matches!(self.peek().kind, TokenKind::Ident(_))
     }
 
+    fn peek_compound_assign_op(&self) -> Option<BinOp> {
+        match self.peek().kind {
+            TokenKind::PlusAssign => Some(BinOp::Add),
+            TokenKind::MinusAssign => Some(BinOp::Sub),
+            TokenKind::StarAssign => Some(BinOp::Mul),
+            TokenKind::SlashAssign => Some(BinOp::Div),
+            TokenKind::PercentAssign => Some(BinOp::Mod),
+            TokenKind::CaretAssign => Some(BinOp::Pow),
+            _ => None,
+        }
+    }
+
     fn is_expr_start(kind: &TokenKind) -> bool {
         matches!(
             kind,
@@ -120,11 +132,26 @@ impl<'a> Parser<'a> {
             _ => {
                 let left = self.parse_expression()?;
 
-                if self.peek_if(TokenKind::Assign) {
+                if let Some(op) = self.peek_compound_assign_op() {
+                    self.pos += 1;
+                    let right = self.parse_expression()?;
+                    let span = left.span().merge(&right.span());
+                    match left {
+                        Expr::Variable(_, _) | Expr::Index(_, _, _) => Ok(Stmt::CompoundAssign(
+                            Box::new(left),
+                            op,
+                            Box::new(right),
+                            span,
+                        )),
+                        _ => Err(ParseError {
+                            span: left.span(),
+                            message: "Invalid left-hand side for compound assignment".to_string(),
+                        }),
+                    }
+                } else if self.peek_if(TokenKind::Assign) {
                     self.consume(TokenKind::Assign)?;
                     let right = self.parse_expression()?;
                     let span = left.span().merge(&right.span());
-
                     match left {
                         Expr::Variable(_, _) | Expr::Index(_, _, _) => {
                             Ok(Stmt::Assign(Box::new(left), Box::new(right), span))
@@ -203,7 +230,7 @@ impl<'a> Parser<'a> {
     fn parse_for(&mut self) -> ParseResult<Stmt> {
         let start = self.peek().span;
         self.consume(TokenKind::For)?;
-        let (var, _) = self.consume_ident()?;
+        let (var, var_span) = self.consume_ident()?;
         self.consume(TokenKind::Assign)?;
         let start_expr = self.parse_expression()?;
         self.consume(TokenKind::To)?;
@@ -217,14 +244,15 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let span = start.merge(&self.tokens[self.pos - 1].span);
+        let full_span = start.merge(&self.tokens[self.pos - 1].span);
         Ok(Stmt::For(
             var,
             Box::new(start_expr),
             Box::new(end_expr),
             step,
             body,
-            span,
+            var_span,
+            full_span,
         ))
     }
 
@@ -233,7 +261,7 @@ impl<'a> Parser<'a> {
         let start = self.peek().span;
         let doc = self.peek().doc.clone();
         self.consume(TokenKind::Func)?;
-        let (name, _) = self.consume_ident()?;
+        let (name, name_span) = self.consume_ident()?;
         self.consume(TokenKind::LParen)?;
         let mut params = Vec::new();
         if !self.peek_if(TokenKind::RParen) {
@@ -250,8 +278,8 @@ impl<'a> Parser<'a> {
         self.consume(TokenKind::RParen)?;
         let block = self.parse_block(&[TokenKind::End])?;
         self.consume(TokenKind::End)?;
-        let span = start.merge(&self.tokens[self.pos - 1].span);
-        Ok(Stmt::Func(name, params, block, doc, span))
+        let full_span = start.merge(&self.tokens[self.pos - 1].span);
+        Ok(Stmt::Func(name, params, block, doc, name_span, full_span))
     }
 
     // ---- RETURN [expr] ----
@@ -625,12 +653,13 @@ mod tests {
                 Span::dummy(),
             ),
             Stmt::Input(prompt, var, _) => Stmt::Input(prompt.clone(), var.clone(), Span::dummy()),
-            Stmt::For(var, start, end, step, body, _) => Stmt::For(
+            Stmt::For(var, start, end, step, body, _, _) => Stmt::For(
                 var.clone(),
                 Box::new(strip_spans_expr(start)),
                 Box::new(strip_spans_expr(end)),
                 step.as_ref().map(|s| Box::new(strip_spans_expr(s))),
                 body.iter().map(strip_spans_stmt).collect(),
+                Span::dummy(),
                 Span::dummy(),
             ),
             Stmt::If(cond, then_block, else_block, _) => Stmt::If(
@@ -647,11 +676,12 @@ mod tests {
                 Span::dummy(),
             ),
             Stmt::Break(_) => Stmt::Break(Span::dummy()),
-            Stmt::Func(name, params, block, _, _) => Stmt::Func(
+            Stmt::Func(name, params, block, _, _, _) => Stmt::Func(
                 name.clone(),
                 params.clone(),
                 block.iter().map(strip_spans_stmt).collect(),
                 None,
+                Span::dummy(),
                 Span::dummy(),
             ),
             Stmt::Return(expr, _) => {
@@ -663,6 +693,12 @@ mod tests {
             Stmt::Assign(lhs, rhs, _) => Stmt::Assign(
                 Box::new(strip_spans_expr(lhs)),
                 Box::new(strip_spans_expr(rhs)),
+                Span::dummy(),
+            ),
+            Stmt::CompoundAssign(left, op, right, _) => Stmt::CompoundAssign(
+                Box::new(strip_spans_expr(left)),
+                *op,
+                Box::new(strip_spans_expr(right)),
                 Span::dummy(),
             ),
             Stmt::Expr(expr, _) => Stmt::Expr(strip_spans_expr(expr), Span::dummy()),
@@ -999,7 +1035,7 @@ mod tests {
     fn test_func() {
         let prog = parse_normalized("FUNC add(a, b) RET a + b END");
         match &prog.stmts[0] {
-            Stmt::Func(name, params, block, _, _) => {
+            Stmt::Func(name, params, block, _, _, _) => {
                 assert_eq!(*name, hi_common::intern("add"));
                 assert_eq!(params, &[hi_common::intern("a"), hi_common::intern("b")]);
                 assert_eq!(block.len(), 1);
@@ -1129,7 +1165,7 @@ mod tests {
     fn test_for() {
         let prog = parse_normalized("FOR i = 0 TO 10 DO PRINT i NEXT 2");
         match &prog.stmts[0] {
-            Stmt::For(var, start, end, step, body, _) => {
+            Stmt::For(var, start, end, step, body, _, _) => {
                 assert_eq!(*var, hi_common::intern("i"));
                 assert_eq!(**start, Expr::Int(0, Span::dummy()));
                 assert_eq!(**end, Expr::Int(10, Span::dummy()));
@@ -1141,7 +1177,7 @@ mod tests {
 
         let prog = parse_normalized("FOR i = 0 TO 10 DO PRINT i NEXT");
         match &prog.stmts[0] {
-            Stmt::For(_, _, _, step, _, _) => assert!(step.is_none()),
+            Stmt::For(_, _, _, step, _, _, _) => assert!(step.is_none()),
             _ => panic!("Expected For without step"),
         }
     }

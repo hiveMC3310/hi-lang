@@ -1,3 +1,9 @@
+//! Symbol interning for efficient string representation.
+//!
+//! This module provides a global interner that maps strings to unique `Symbol` values.
+//! Symbols are cheap to copy and compare, and can be resolved back to the original string.
+//! The interner is thread-safe via a `Mutex` and is lazily initialized.
+
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Mutex;
@@ -18,9 +24,9 @@ impl Interner {
         }
     }
 
-    /// Вернуть символ для строки, добавив её при необходимости.
+    /// Returns a symbol for the string, interning it if necessary.
     pub fn intern(&mut self, s: &str) -> Symbol {
-        // Поиск по существующей аллокации
+        // Look up existing allocation
         if let Some(&sym) = self.map.get(s) {
             return sym;
         }
@@ -31,7 +37,7 @@ impl Interner {
         Symbol(idx)
     }
 
-    /// Восстановить строку по символу.
+    /// Retrieves the string corresponding to a symbol.
     pub fn resolve(&self, sym: Symbol) -> &str {
         &self.strings[sym.0 as usize]
     }
@@ -39,7 +45,7 @@ impl Interner {
 
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", INTERNER.lock().unwrap().resolve(*self))
+        write!(f, "{}", INTERNER.lock()        .expect("Interner mutex is poisoned").resolve(*self))
     }
 }
 
@@ -47,13 +53,13 @@ lazy_static::lazy_static! {
     static ref INTERNER: Mutex<Interner> = Mutex::new(Interner::new());
 }
 
-/// Глобальный метод для интернирования.
+/// Global function to intern a string.
 pub fn intern(s: &str) -> Symbol {
-    INTERNER.lock().unwrap().intern(s)
+    INTERNER.lock()        .expect("Interner mutex is poisoned").intern(s)
 }
 
-/// Глобальный метод для разрешения символа (возвращает String для удобства,
-/// но стараемся использовать Display или доступ к &str через Interner напрямую).
+/// Global function to resolve a symbol (returns a `String` for convenience,
+/// but prefer using `Display` or direct `&str` access via the `Interner`).
 pub fn resolve(sym: Symbol) -> String {
-    INTERNER.lock().unwrap().resolve(sym).to_owned()
+    INTERNER.lock()        .expect("Interner mutex is poisoned").resolve(sym).to_owned()
 }

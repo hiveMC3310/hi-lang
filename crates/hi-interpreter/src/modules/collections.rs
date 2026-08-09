@@ -6,7 +6,7 @@ use crate::value::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-// Вспомогательная функция для вызова функции через глобальный `call`.
+// Helper function for calling a function via the global `call`.
 fn call_func(
     interp: &mut Interpreter,
     func: &Value,

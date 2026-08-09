@@ -9,61 +9,106 @@ permissions:
   contents: write
 
 jobs:
+  lint:
+    name: Lint and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: lint-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Check formatting
+        run: cargo fmt -- --check
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+      - name: Run tests
+        run: cargo test -- --test-threads=1 --nocapture
+
   build:
+    needs: lint
     name: Build for ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          - target: x86_64-unknown-linux-gnu
+          - target: x86_64-unknown-linux-musl
             os: ubuntu-latest
             ext: ''
+            archive_ext: tar.gz
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             ext: '.exe'
+            archive_ext: zip
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            ext: ''
+            archive_ext: tar.gz
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           target: ${{ matrix.target }}
-          override: true
-
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Rename binary
-        run: |
-          cp target/${{ matrix.target }}/release/hi${{ matrix.ext }} hi-${{ matrix.target }}${{ matrix.ext }}
+      - name: Install musl tools (Linux musl)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }} --bin hi --bin hi-lsp
+      - name: Prepare archive
         shell: bash
-
-      - name: Upload artifact
+        run: |
+          mkdir -p release
+          cp target/${{ matrix.target }}/release/hi${{ matrix.ext }} release/
+          cp target/${{ matrix.target }}/release/hi-lsp${{ matrix.ext }} release/
+          chmod +x release/* || true
+          cd release
+          if [ "${{ matrix.archive_ext }}" == "zip" ]; then
+            7z a ../hi-${{ github.ref_name }}-${{ matrix.target }}.zip .
+          else
+            tar czf ../hi-${{ github.ref_name }}-${{ matrix.target }}.tar.gz .
+          fi
+      - name: Generate checksums
+        run: |
+          cd release
+          shasum -a 256 * > ../checksums-${{ matrix.target }}.txt
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: hi-${{ matrix.target }}
-          path: hi-${{ matrix.target }}${{ matrix.ext }}
+          path: |
+            hi-${{ github.ref_name }}-${{ matrix.target }}.${{ matrix.archive_ext }}
+            checksums-${{ matrix.target }}.txt
 
   release:
-    name: Create Release and attach binaries
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-    permissions:
-      contents: write
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/**/*
           draft: false
           prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -33,30 +33,36 @@ pub enum TokenKind {
 
     String(String),
 
-    Plus,     // +
-    Minus,    // -
-    Star,     // *
-    Slash,    // /
-    Percent,  // %
-    Caret,    // ^
-    EqEq,     // ==
-    Neq,      // !=
-    Gt,       // >
-    Ge,       // >=
-    Lt,       // <
-    Le,       // <=
-    And,      // AND
-    Or,       // OR
-    Not,      // NOT or !
-    Assign,   // =
-    LParen,   // (
-    RParen,   // )
-    LBrace,   // {
-    RBrace,   // }
-    LBracket, // [
-    RBracket, // ]
-    Comma,    // ,
-    Colon,    // :
+    Plus,          // +
+    Minus,         // -
+    Star,          // *
+    Slash,         // /
+    Percent,       // %
+    Caret,         // ^
+    PlusAssign,    // +=
+    MinusAssign,   // -=
+    StarAssign,    // *=
+    SlashAssign,   // /=
+    PercentAssign, // %=
+    CaretAssign,   // ^=
+    EqEq,          // ==
+    Neq,           // !=
+    Gt,            // >
+    Ge,            // >=
+    Lt,            // <
+    Le,            // <=
+    And,           // AND
+    Or,            // OR
+    Not,           // NOT or !
+    Assign,        // =
+    LParen,        // (
+    RParen,        // )
+    LBrace,        // {
+    RBrace,        // }
+    LBracket,      // [
+    RBracket,      // ]
+    Comma,         // ,
+    Colon,         // :
 
     Eof,
 }
@@ -101,18 +107,16 @@ impl Lexer {
 
             // Comments
             if ch == '/' && pos + 1 < chars.len() && chars[pos + 1] == '/' {
-                // Проверяем, doc-комментарий ли это (третий слэш)
                 if pos + 2 < chars.len() && chars[pos + 2] == '/' {
-                    // doc-комментарий
+                    // doc
                     let mut doc_line = String::new();
-                    pos += 3; // пропускаем "///"
+                    pos += 3;
                     col += 3;
                     while pos < chars.len() && chars[pos] != '\n' {
                         doc_line.push(chars[pos]);
                         pos += 1;
                         col += 1;
                     }
-                    // Убираем начальные пробелы? Можно оставить как есть.
                     if let Some(ref mut existing) = lexer.pending_doc {
                         existing.push('\n');
                         existing.push_str(&doc_line);
@@ -121,7 +125,6 @@ impl Lexer {
                     }
                     continue;
                 } else {
-                    // обычный комментарий, пропускаем до конца строки
                     while pos < chars.len() && chars[pos] != '\n' {
                         pos += 1;
                         col += 1;
@@ -354,14 +357,138 @@ impl Lexer {
 
             // Operators and punctuation
             match ch {
-                '+' => tokens.push(lexer.token(TokenKind::Plus, start_line, start_col, line, col)),
-                '-' => tokens.push(lexer.token(TokenKind::Minus, start_line, start_col, line, col)),
-                '*' => tokens.push(lexer.token(TokenKind::Star, start_line, start_col, line, col)),
-                '/' => tokens.push(lexer.token(TokenKind::Slash, start_line, start_col, line, col)),
-                '%' => {
-                    tokens.push(lexer.token(TokenKind::Percent, start_line, start_col, line, col))
+                '+' => {
+                    if pos + 1 < chars.len() && chars[pos + 1] == '=' {
+                        tokens.push(lexer.token(
+                            TokenKind::PlusAssign,
+                            start_line,
+                            start_col,
+                            line,
+                            col + 1,
+                        ));
+                        pos += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(lexer.token(TokenKind::Plus, start_line, start_col, line, col));
+                        pos += 1;
+                        col += 1;
+                    }
+                    continue;
                 }
-                '^' => tokens.push(lexer.token(TokenKind::Caret, start_line, start_col, line, col)),
+                '-' => {
+                    if pos + 1 < chars.len() && chars[pos + 1] == '=' {
+                        tokens.push(lexer.token(
+                            TokenKind::MinusAssign,
+                            start_line,
+                            start_col,
+                            line,
+                            col + 1,
+                        ));
+                        pos += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(lexer.token(
+                            TokenKind::Minus,
+                            start_line,
+                            start_col,
+                            line,
+                            col,
+                        ));
+                        pos += 1;
+                        col += 1;
+                    }
+                    continue;
+                }
+                '*' => {
+                    if pos + 1 < chars.len() && chars[pos + 1] == '=' {
+                        tokens.push(lexer.token(
+                            TokenKind::StarAssign,
+                            start_line,
+                            start_col,
+                            line,
+                            col + 1,
+                        ));
+                        pos += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(lexer.token(TokenKind::Star, start_line, start_col, line, col));
+                        pos += 1;
+                        col += 1;
+                    }
+                    continue;
+                }
+                '/' => {
+                    if pos + 1 < chars.len() && chars[pos + 1] == '=' {
+                        tokens.push(lexer.token(
+                            TokenKind::SlashAssign,
+                            start_line,
+                            start_col,
+                            line,
+                            col + 1,
+                        ));
+                        pos += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(lexer.token(
+                            TokenKind::Slash,
+                            start_line,
+                            start_col,
+                            line,
+                            col,
+                        ));
+                        pos += 1;
+                        col += 1;
+                    }
+                    continue;
+                }
+                '%' => {
+                    if pos + 1 < chars.len() && chars[pos + 1] == '=' {
+                        tokens.push(lexer.token(
+                            TokenKind::PercentAssign,
+                            start_line,
+                            start_col,
+                            line,
+                            col + 1,
+                        ));
+                        pos += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(lexer.token(
+                            TokenKind::Percent,
+                            start_line,
+                            start_col,
+                            line,
+                            col,
+                        ));
+                        pos += 1;
+                        col += 1;
+                    }
+                    continue;
+                }
+                '^' => {
+                    if pos + 1 < chars.len() && chars[pos + 1] == '=' {
+                        tokens.push(lexer.token(
+                            TokenKind::CaretAssign,
+                            start_line,
+                            start_col,
+                            line,
+                            col + 1,
+                        ));
+                        pos += 2;
+                        col += 2;
+                    } else {
+                        tokens.push(lexer.token(
+                            TokenKind::Caret,
+                            start_line,
+                            start_col,
+                            line,
+                            col,
+                        ));
+                        pos += 1;
+                        col += 1;
+                    }
+                    continue;
+                }
                 '(' => {
                     tokens.push(lexer.token(TokenKind::LParen, start_line, start_col, line, col))
                 }

@@ -5,7 +5,7 @@ use crate::interpreter::Interpreter;
 use crate::value::Value;
 use std::f64::consts::PI;
 
-// ---------- Вспомогательные функции ----------
+// ---------- Helper functions ----------
 fn get_number_arg(
     _: &mut Interpreter,
     args: &[Value],
@@ -64,7 +64,7 @@ fn max_of_two(a: (f64, bool), b: (f64, bool)) -> Value {
     }
 }
 
-// ---------- Константы ----------
+// ---------- Consts ----------
 inventory::submit! {
     ModuleVariable {
         module: "math",
@@ -81,7 +81,7 @@ inventory::submit! {
 }
 // E is a constant: e ≈ 2.718281828459045
 
-// ---------- Тригонометрические функции ----------
+// ---------- Trigonometric functions ----------
 // sin
 fn sin_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
     let num = get_number_arg(interp, args, span, "sin")?;
@@ -184,7 +184,7 @@ inventory::submit! {
     }
 }
 
-// ---------- Другие математические функции ----------
+// ---------- Other ----------
 // sqrt
 fn sqrt_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
     let num = get_number_arg(interp, args, span, "sqrt")?;
@@ -374,13 +374,13 @@ inventory::submit! {
     }
 }
 
-// ---------- min, max, clamp (могут возвращать Int или Float) ----------
+// ---------- min, max, clamp (returns Int or Float) ----------
 // min
 fn min_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
     if args.len() == 2 {
         let a = get_number_arg_opt(&args[0], span)?;
         let b = get_number_arg_opt(&args[1], span)?;
-        return Ok(min_of_two(a, b));
+        Ok(min_of_two(a, b))
     } else if args.len() == 1 {
         match &args[0] {
             Value::List(list_rc) => {

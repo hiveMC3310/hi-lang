@@ -2,23 +2,37 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
+
+use tokio::sync::Mutex as TokioMutex;
 use tower_lsp_server::jsonrpc::Result;
 use tower_lsp_server::ls_types::*;
 use tower_lsp_server::{Client, LanguageServer, LspService, Server};
 
 use hi_analyzer::analysis::{AnalysisResult, Analyzer, SymbolInfo};
 use hi_analyzer::symbol;
+use hi_common::Symbol as HiSymbol;
 use hi_interpreter::ast::Span;
 use hi_interpreter::builtins::{self, KEYWORDS};
 use hi_interpreter::parser::Parser;
 use hi_interpreter::parser::lexer::Lexer;
+
+// ---------------------------------------------------------------------------
+// Backend
+// ---------------------------------------------------------------------------
 
 struct Backend {
     client: Client,
     documents: Arc<RwLock<HashMap<Uri, String>>>,
     analysis_cache: Arc<RwLock<HashMap<Uri, AnalysisResult>>>,
     analyzer: Arc<Analyzer>,
+    /// Channel for canceling the previous analysis task.
+    cancel_tx: Arc<TokioMutex<Option<tokio::sync::oneshot::Sender<()>>>>,
 }
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 fn span_to_range(span: &Span) -> Range {
     Range {
@@ -32,6 +46,10 @@ fn span_to_range(span: &Span) -> Range {
         },
     }
 }
+
+// ---------------------------------------------------------------------------
+// LanguageServer implementation
+// ---------------------------------------------------------------------------
 
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
@@ -47,6 +65,11 @@ impl LanguageServer for Backend {
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
+                references_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -54,7 +77,8 @@ impl LanguageServer for Backend {
     }
 
     async fn initialized(&self, _: InitializedParams) {
-        self.client
+        let _ = self
+            .client
             .log_message(MessageType::INFO, "Hi language server initialized")
             .await;
     }
@@ -63,59 +87,55 @@ impl LanguageServer for Backend {
         Ok(())
     }
 
+    // ------------------------------------------------------------------
+    // Document sync
+    // ------------------------------------------------------------------
+
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         let text = params.text_document.text;
-        self.documents
-            .write()
-            .expect("RwLock poisoned")
-            .insert(uri.clone(), text.clone());
-
-        let (diagnostics, analysis, ok) = self.analyze_document(&text, &uri);
-        if ok {
-            self.analysis_cache
-                .write()
-                .expect("RwLock poisoned")
-                .insert(uri.clone(), analysis);
+        if let Ok(mut docs) = self.documents.write() {
+            docs.insert(uri.clone(), text);
+        } else {
+            let _ = self
+                .client
+                .log_message(MessageType::ERROR, "Failed to write to documents")
+                .await;
+            return;
         }
-        self.client
-            .publish_diagnostics(uri, diagnostics, None)
-            .await;
+        self.request_analysis(uri).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         let uri = params.text_document.uri.clone();
         if let Some(change) = params.content_changes.first() {
             let text = change.text.clone();
-            self.documents
-                .write()
-                .expect("RwLock poisoned")
-                .insert(uri.clone(), text.clone());
-
-            let (diagnostics, analysis, ok) = self.analyze_document(&text, &uri);
-            if ok {
-                self.analysis_cache
-                    .write()
-                    .expect("RwLock poisoned")
-                    .insert(uri.clone(), analysis);
+            if let Ok(mut docs) = self.documents.write() {
+                docs.insert(uri.clone(), text);
+            } else {
+                let _ = self
+                    .client
+                    .log_message(MessageType::ERROR, "Failed to write to documents")
+                    .await;
+                return;
             }
-            self.client
-                .publish_diagnostics(uri, diagnostics, None)
-                .await;
+            self.request_analysis(uri).await;
         }
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
-        self.documents
-            .write()
-            .expect("RwLock poisoned")
-            .remove(&uri);
-        self.analysis_cache
-            .write()
-            .expect("RwLock poisoned")
-            .remove(&uri);
+        if let Ok(mut docs) = self.documents.write() {
+            docs.remove(&uri);
+        }
+        if let Ok(mut cache) = self.analysis_cache.write() {
+            cache.remove(&uri);
+        }
     }
+
+    // ------------------------------------------------------------------
+    // Hover
+    // ------------------------------------------------------------------
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let uri = params.text_document_position_params.text_document.uri;
@@ -124,7 +144,10 @@ impl LanguageServer for Backend {
         let col = (position.character + 1) as usize;
 
         let analysis = {
-            let cache = self.analysis_cache.read().expect("RwLock poisoned");
+            let cache = match self.analysis_cache.read() {
+                Ok(c) => c,
+                Err(_) => return Ok(None),
+            };
             cache.get(&uri).cloned()
         };
 
@@ -141,22 +164,11 @@ impl LanguageServer for Backend {
                 let module_sym = hi_common::intern(module_str);
                 let func_sym = hi_common::intern(func_str);
 
-                // Проверяем встроенные модули
+                // built-in
                 let module_funcs = builtins::get_module_functions_map();
                 if let Some(funcs) = module_funcs.get(&module_sym) {
                     if let Some(mf) = funcs.iter().find(|f| f.name == func_sym) {
-                        let params_str = if mf.params.is_empty() {
-                            "".to_string()
-                        } else if mf.params.len() == 1 && hi_common::resolve(mf.params[0]) == "..."
-                        {
-                            "...".to_string()
-                        } else {
-                            mf.params
-                                .iter()
-                                .map(|s| s.to_string())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        };
+                        let params_str = Self::format_params(&mf.params);
                         let mut content = format!(
                             "```hi\n{}:{}({})\n```\n\n*function*",
                             module_str, func_str, params_str
@@ -175,33 +187,14 @@ impl LanguageServer for Backend {
                     }
                 }
 
-                // Проверяем пользовательские модули
+                // user-defined
                 if let Some(symbols) = result.loaded_module_exports.get(&module_sym) {
                     if let Some(sym) = symbols.iter().find(|s| s.name == func_sym) {
-                        let params_str = match &sym.kind {
-                            symbol::SymbolKind::Function(params)
-                            | symbol::SymbolKind::BuiltinFunction(params) => {
-                                if params.is_empty() {
-                                    "".to_string()
-                                } else if params.len() == 1
-                                    && hi_common::resolve(params[0]) == "..."
-                                {
-                                    "...".to_string()
-                                } else {
-                                    params
-                                        .iter()
-                                        .map(|s| s.to_string())
-                                        .collect::<Vec<_>>()
-                                        .join(", ")
-                                }
-                            }
-                            _ => String::new(),
-                        };
+                        let params_str = Self::format_info_params(&sym.kind);
                         let mut content = format!(
                             "```hi\n{}:{}({})\n```\n\n*function*",
                             module_str, func_str, params_str
                         );
-                        // Временная диагностика: показываем состояние документации
                         if let Some(doc) = &sym.doc {
                             content.push_str("\n\n---\n");
                             content.push_str(doc);
@@ -229,7 +222,7 @@ impl LanguageServer for Backend {
                 let module_sym = hi_common::intern(module_str);
                 let var_sym = hi_common::intern(var_str);
 
-                // Встроенные переменные модулей
+                // built-in
                 let module_vars = builtins::get_module_variables_map();
                 if let Some(vars) = module_vars.get(&module_sym) {
                     if vars.contains(&var_sym) {
@@ -245,9 +238,9 @@ impl LanguageServer for Backend {
                     }
                 }
 
-                // Пользовательские переменные модулей
+                // user-defined
                 if let Some(symbols) = result.loaded_module_exports.get(&module_sym) {
-                    if let Some(_) = symbols.iter().find(|s| s.name == var_sym) {
+                    if symbols.iter().any(|s| s.name == var_sym) {
                         let content =
                             format!("```hi\n{}:{}\n```\n\n*variable*", module_str, var_str);
                         return Ok(Some(Hover {
@@ -273,17 +266,8 @@ impl LanguageServer for Backend {
                     symbol::SymbolKind::Builtin => ("builtin", None),
                 };
 
-                let header = if let Some(params) = params_opt {
-                    let params_str = if params.len() == 1 && hi_common::resolve(params[0]) == "..."
-                    {
-                        "...".to_string()
-                    } else {
-                        params
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    };
+                let header = if !params_opt.is_none() {
+                    let params_str = Self::format_info_params(&sym.kind);
                     format!("```hi\n{}({})\n```", sym.name, params_str)
                 } else {
                     format!("```hi\n{}\n```", sym.name)
@@ -303,7 +287,7 @@ impl LanguageServer for Backend {
             }
 
             // 3. use
-            if let Some((use_span, name)) = result.use_at(line, col) {
+            if let Some((_, name)) = result.use_at(line, col) {
                 let sym = result
                     .symbols
                     .iter()
@@ -320,17 +304,8 @@ impl LanguageServer for Backend {
                         symbol::SymbolKind::Builtin => ("builtin", None),
                     };
 
-                    let header = if let Some(params) = params_opt {
-                        let params_str =
-                            if params.len() == 1 && hi_common::resolve(params[0]) == "..." {
-                                "...".to_string()
-                            } else {
-                                params
-                                    .iter()
-                                    .map(|s| s.to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(", ")
-                            };
+                    let header = if !params_opt.is_none() {
+                        let params_str = Self::format_info_params(&sym.kind);
                         format!("```hi\n{}({})\n```", sym.name, params_str)
                     } else {
                         format!("```hi\n{}\n```", sym.name)
@@ -353,6 +328,10 @@ impl LanguageServer for Backend {
         Ok(None)
     }
 
+    // ------------------------------------------------------------------
+    // Completion
+    // ------------------------------------------------------------------
+
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
@@ -362,17 +341,23 @@ impl LanguageServer for Backend {
         let trigger_character = params.context.and_then(|ctx| ctx.trigger_character);
 
         let analysis = {
-            let cache = self.analysis_cache.read().expect("RwLock poisoned");
+            let cache = match self.analysis_cache.read() {
+                Ok(c) => c,
+                Err(_) => return Ok(Some(CompletionResponse::Array(vec![]))),
+            };
             match cache.get(&uri) {
                 Some(cached) => cached.clone(),
                 None => return Ok(Some(CompletionResponse::Array(vec![]))),
             }
         };
 
-        // Контекстное завершение после ':'
+        // Contextual: after '"' (IMPORT)
         if let Some(ref ch) = trigger_character {
             if ch == "\"" {
-                let documents = self.documents.read().expect("RwLock poisoned");
+                let documents = match self.documents.read() {
+                    Ok(d) => d,
+                    Err(_) => return Ok(Some(CompletionResponse::Array(vec![]))),
+                };
                 if let Some(text) = documents.get(&uri) {
                     let line_text = text.lines().nth(line).unwrap_or("");
                     let before_cursor = &line_text[..col.min(line_text.len())];
@@ -400,8 +385,12 @@ impl LanguageServer for Backend {
                 }
             }
 
+            // Contextual: after ':'
             if ch == ":" {
-                let documents = self.documents.read().expect("RwLock poisoned");
+                let documents = match self.documents.read() {
+                    Ok(d) => d,
+                    Err(_) => return Ok(Some(CompletionResponse::Array(vec![]))),
+                };
                 if let Some(text) = documents.get(&uri) {
                     let line_text = text.lines().nth(line).unwrap_or("");
                     let before_cursor = &line_text[..col.min(line_text.len())];
@@ -412,7 +401,6 @@ impl LanguageServer for Backend {
                                 ident_candidate.split_whitespace().last().unwrap_or("");
                             if !module_name.is_empty() {
                                 let module_sym = hi_common::intern(module_name);
-
                                 let real_module_sym = analysis
                                     .module_aliases
                                     .get(&module_sym)
@@ -423,7 +411,7 @@ impl LanguageServer for Backend {
                                     return Ok(Some(CompletionResponse::Array(vec![])));
                                 }
 
-                                // Встроенные модули
+                                // built-in modules
                                 let module_funcs = builtins::get_module_functions_map();
                                 if let Some(funcs) = module_funcs.get(&real_module_sym) {
                                     let mut items = Vec::new();
@@ -452,7 +440,7 @@ impl LanguageServer for Backend {
                                     return Ok(Some(CompletionResponse::Array(items)));
                                 }
 
-                                // Пользовательские модули
+                                // user-defined modules
                                 if let Some(symbols) =
                                     analysis.loaded_module_exports.get(&real_module_sym)
                                 {
@@ -479,7 +467,6 @@ impl LanguageServer for Backend {
                                     return Ok(Some(CompletionResponse::Array(items)));
                                 }
 
-                                // Модуль не найден
                                 return Ok(Some(CompletionResponse::Array(vec![])));
                             }
                         }
@@ -488,7 +475,7 @@ impl LanguageServer for Backend {
             }
         }
 
-        // Обычное завершение
+        // Normal completion
         let mut items = Vec::new();
         for kw in KEYWORDS {
             items.push(CompletionItem {
@@ -552,6 +539,10 @@ impl LanguageServer for Backend {
         Ok(Some(CompletionResponse::Array(items)))
     }
 
+    // ------------------------------------------------------------------
+    // Goto definition
+    // ------------------------------------------------------------------
+
     async fn goto_definition(
         &self,
         params: GotoDefinitionParams,
@@ -562,7 +553,10 @@ impl LanguageServer for Backend {
         let col = (position.character + 1) as usize;
 
         let analysis = {
-            let cache = self.analysis_cache.read().expect("RwLock poisoned");
+            let cache = match self.analysis_cache.read() {
+                Ok(c) => c,
+                Err(_) => return Ok(None),
+            };
             cache.get(&uri).cloned()
         };
 
@@ -576,7 +570,139 @@ impl LanguageServer for Backend {
         }
         Ok(None)
     }
+
+    // ------------------------------------------------------------------
+    // Rename
+    // ------------------------------------------------------------------
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+        let line = (position.line + 1) as usize;
+        let col = (position.character + 1) as usize;
+
+        let analysis = {
+            let cache = match self.analysis_cache.read() {
+                Ok(c) => c,
+                Err(_) => return Ok(None),
+            };
+            cache.get(&uri).cloned()
+        };
+
+        if let Some(result) = analysis {
+            if let Some(sym) = result.symbol_at(line, col) {
+                if matches!(sym.kind, symbol::SymbolKind::BuiltinFunction(_)) {
+                    return Ok(None);
+                }
+                return Ok(Some(PrepareRenameResponse::Range(span_to_range(&sym.span))));
+            }
+            if let Some((use_span, _)) = result.use_at(line, col) {
+                return Ok(Some(PrepareRenameResponse::Range(span_to_range(&use_span))));
+            }
+        }
+        Ok(None)
+    }
+
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let line = (position.line + 1) as usize;
+        let col = (position.character + 1) as usize;
+        let new_name = params.new_name;
+
+        let analysis = {
+            let cache = match self.analysis_cache.read() {
+                Ok(c) => c,
+                Err(_) => return Ok(None),
+            };
+            cache.get(&uri).cloned()
+        };
+
+        if let Some(result) = analysis {
+            let sym_name = if let Some(sym) = result.symbol_at(line, col) {
+                if matches!(sym.kind, symbol::SymbolKind::BuiltinFunction(_)) {
+                    return Ok(None);
+                }
+                sym.name
+            } else if let Some((_, name)) = result.use_at(line, col) {
+                name
+            } else {
+                return Ok(None);
+            };
+
+            let spans = result.all_uses_of(sym_name);
+            if spans.is_empty() {
+                return Ok(None);
+            }
+
+            let edits: Vec<TextEdit> = spans
+                .iter()
+                .map(|span| TextEdit {
+                    range: span_to_range(span),
+                    new_text: new_name.clone(),
+                })
+                .collect();
+
+            let mut changes = HashMap::new();
+            changes.insert(uri, edits);
+            Ok(Some(WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // References
+    // ------------------------------------------------------------------
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let line = (position.line + 1) as usize;
+        let col = (position.character + 1) as usize;
+
+        let analysis = {
+            let cache = match self.analysis_cache.read() {
+                Ok(c) => c,
+                Err(_) => return Ok(None),
+            };
+            cache.get(&uri).cloned()
+        };
+
+        if let Some(result) = analysis {
+            let sym_name = if let Some(sym) = result.symbol_at(line, col) {
+                sym.name
+            } else if let Some((_, name)) = result.use_at(line, col) {
+                name
+            } else {
+                return Ok(None);
+            };
+
+            let spans = result.all_uses_of(sym_name);
+            let locations: Vec<Location> = spans
+                .iter()
+                .map(|span| Location {
+                    uri: uri.clone(),
+                    range: span_to_range(span),
+                })
+                .collect();
+
+            Ok(Some(locations))
+        } else {
+            Ok(None)
+        }
+    }
 }
+
+// ---------------------------------------------------------------------------
+// Backend helpers
+// ---------------------------------------------------------------------------
 
 impl Backend {
     fn new(client: Client) -> Self {
@@ -585,66 +711,158 @@ impl Backend {
             documents: Arc::new(RwLock::new(HashMap::new())),
             analysis_cache: Arc::new(RwLock::new(HashMap::new())),
             analyzer: Arc::new(Analyzer::new()),
+            cancel_tx: Arc::new(TokioMutex::new(None)),
         }
     }
 
-    fn analyze_document(&self, text: &str, uri: &Uri) -> (Vec<Diagnostic>, AnalysisResult, bool) {
-        let mut diagnostics = Vec::new();
-
-        let tokens = match Lexer::tokenize(text) {
-            Ok(t) => t,
-            Err(e) => {
-                let span = e.span().unwrap_or(Span {
-                    start_line: 0,
-                    start_col: 0,
-                    end_line: 0,
-                    end_col: 0,
-                });
-                diagnostics.push(Diagnostic {
-                    range: span_to_range(&span),
-                    severity: Some(DiagnosticSeverity::ERROR),
-                    message: e.message,
-                    ..Default::default()
-                });
-                return (diagnostics, AnalysisResult::default(), false);
+    /// Asynchronously runs file analysis with a 150 ms debounce.
+    async fn request_analysis(&self, uri: Uri) {
+        // Cancel the previous task
+        let rx = {
+            let mut cancel = self.cancel_tx.lock().await;
+            if let Some(tx) = cancel.take() {
+                let _ = tx.send(());
             }
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            *cancel = Some(tx);
+            rx
         };
 
-        let mut parser = Parser::new(&tokens);
-        let program = match parser.parse() {
-            Ok(p) => p,
-            Err(e) => {
-                let span = e.span().unwrap_or(Span {
-                    start_line: 0,
-                    start_col: 0,
-                    end_line: 0,
-                    end_col: 0,
-                });
-                diagnostics.push(Diagnostic {
-                    range: span_to_range(&span),
-                    severity: Some(DiagnosticSeverity::ERROR),
-                    message: e.message,
-                    ..Default::default()
-                });
-                return (diagnostics, AnalysisResult::default(), false);
+        let documents = self.documents.clone();
+        let analysis_cache = self.analysis_cache.clone();
+        let analyzer = self.analyzer.clone();
+        let client = self.client.clone();
+        let uri_clone = uri.clone();
+
+        tokio::spawn(async move {
+            // Debounce: wait 150 ms or cancellation
+            tokio::select! {
+                _ = tokio::time::sleep(Duration::from_millis(150)) => {},
+                _ = rx => { return; }
             }
-        };
 
-        let path = uri.to_file_path();
-        let result = self.analyzer.analyze(&program, path.as_deref());
+            // Additional URI clone for passing to spawn_blocking
+            let uri_for_analysis = uri_clone.clone();
 
-        for error in &result.errors {
-            diagnostics.push(Diagnostic {
-                range: span_to_range(&error.span),
-                severity: Some(DiagnosticSeverity::ERROR),
-                message: error.message.clone(),
-                ..Default::default()
-            });
+            let result = tokio::task::spawn_blocking(move || {
+                let documents = match documents.read() {
+                    Ok(d) => d,
+                    Err(_) => return (Vec::new(), AnalysisResult::default()),
+                };
+                let text = match documents.get(&uri_for_analysis) {
+                    Some(t) => t.clone(),
+                    None => return (Vec::new(), AnalysisResult::default()),
+                };
+                let mut diagnostics = Vec::new();
+
+                let tokens = match Lexer::tokenize(&text) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        let span = e.span().unwrap_or(Span {
+                            start_line: 0,
+                            start_col: 0,
+                            end_line: 0,
+                            end_col: 0,
+                        });
+                        diagnostics.push(Diagnostic {
+                            range: span_to_range(&span),
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            message: e.message,
+                            ..Default::default()
+                        });
+                        return (diagnostics, AnalysisResult::default());
+                    }
+                };
+
+                let mut parser = Parser::new(&tokens);
+                let program = match parser.parse() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let span = e.span().unwrap_or(Span {
+                            start_line: 0,
+                            start_col: 0,
+                            end_line: 0,
+                            end_col: 0,
+                        });
+                        diagnostics.push(Diagnostic {
+                            range: span_to_range(&span),
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            message: e.message,
+                            ..Default::default()
+                        });
+                        return (diagnostics, AnalysisResult::default());
+                    }
+                };
+
+                let path = uri_for_analysis.to_file_path();
+                let analysis = analyzer.analyze(&program, path.as_deref());
+
+                for error in &analysis.errors {
+                    diagnostics.push(Diagnostic {
+                        range: span_to_range(&error.span),
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        message: error.message.clone(),
+                        ..Default::default()
+                    });
+                }
+
+                (diagnostics, analysis)
+            })
+            .await;
+
+            let (diagnostics, analysis) = match result {
+                Ok(res) => res,
+                Err(e) => {
+                    let _ = client
+                        .log_message(MessageType::ERROR, format!("Analysis task panicked: {}", e))
+                        .await;
+                    return;
+                }
+            };
+
+            // Update cache
+            if let Ok(mut cache) = analysis_cache.write() {
+                cache.insert(uri_clone.clone(), analysis);
+            } else {
+                let _ = client
+                    .log_message(MessageType::ERROR, "Failed to write to analysis cache")
+                    .await;
+                return;
+            }
+
+            client
+                .publish_diagnostics(uri_clone, diagnostics, None)
+                .await;
+        });
+    }
+
+    fn format_params(params: &[HiSymbol]) -> String {
+        if params.is_empty() {
+            String::new()
+        } else if params.len() == 1 && hi_common::resolve(params[0]) == "..." {
+            "...".to_string()
+        } else {
+            params
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         }
+    }
 
-        (diagnostics, result, true)
+    fn format_info_params(kind: &symbol::SymbolKind) -> String {
+        match kind {
+            symbol::SymbolKind::Function(params) | symbol::SymbolKind::BuiltinFunction(params) => {
+                Self::format_params(params)
+            }
+            _ => String::new(),
+        }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
 #[tokio::main]
 async fn main() {

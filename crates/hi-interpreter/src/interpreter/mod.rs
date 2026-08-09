@@ -43,7 +43,7 @@ impl Environment {
         }
     }
 
-    // Единый поиск с учётом цепочки родителей
+    // Unified lookup considering parent chain
     pub fn lookup(&self, name: Symbol) -> Option<Binding> {
         self.bindings
             .get(&name)
@@ -51,12 +51,12 @@ impl Environment {
             .or_else(|| self.parent.as_ref().and_then(|p| p.borrow().lookup(name)))
     }
 
-    // Объявить любое связывание в текущем окружении
+    // Declare any binding in the current environment
     pub fn define(&mut self, name: Symbol, binding: Binding) {
         self.bindings.insert(name, binding);
     }
 
-    // Присвоить значение переменной (только для существующей Variable)
+    // Assign a value to a variable (only for existing Variable)
     pub fn assign(&mut self, name: Symbol, value: Value, span: &Span) -> InterpResult<()> {
         if matches!(self.bindings.get(&name), Some(Binding::Variable(_))) {
             self.bindings.insert(name, Binding::Variable(value));
@@ -72,7 +72,7 @@ impl Environment {
         }
     }
 
-    /// Возвращает итератор по всем связываниям в этом окружении (без учёта родителей).
+    /// Returns an iterator over all bindings in this environment (excluding parents).
     pub fn bindings(&self) -> impl Iterator<Item = (Symbol, &Binding)> {
         self.bindings.iter().map(|(k, v)| (*k, v))
     }
@@ -120,11 +120,11 @@ impl Interpreter {
     }
 
     fn init_builtins(env: &mut Environment) {
-        // Глобальные функции
+        // Global functions
         for gf in builtins::get_global_functions() {
             env.define(gf.name, Binding::BuiltinFunction(Rc::new(gf.func)));
         }
-        // Встроенные модули
+        // Built-in modules
         for (module_sym, funcs) in builtins::get_module_functions_map() {
             let mut func_map: HashMap<Symbol, BuiltinFn> = HashMap::new();
             for mf in &funcs {
@@ -233,24 +233,16 @@ impl Interpreter {
             }
             Stmt::Assign(left, right, span) => {
                 let value = self.eval_expr(right)?;
-                match **left {
-                    Expr::Variable(ref name, _) => {
-                        self.env.borrow_mut().assign(*name, value, span)?;
-                    }
-                    Expr::Index(ref base, ref index, span) => {
-                        let base_value = self.eval_expr(base)?;
-                        let index_value = self.eval_expr(index)?;
-                        self.assign_index(base_value, index_value, value, span)?;
-                    }
-                    _ => {
-                        return Err(InterpError::Runtime {
-                            span: left.span(),
-                            message: "Invalid left-hand side in assignment".to_string(),
-                        });
-                    }
-                }
+                self.assign_to_lvalue(left, value, span)
+            }
+            Stmt::CompoundAssign(left, op, right, span) => {
+                let current_val = self.eval_expr(left)?;
+                let right_val = self.eval_expr(right)?;
+                let result = Self::evaluate_binary_op(*op, &current_val, &right_val, span)?;
+                self.assign_to_lvalue(left, result, span)?;
                 Ok(())
             }
+
             Stmt::Input(prompt_opt, var, span) => {
                 if let Some(prompt) = prompt_opt {
                     print!("{}", prompt);
@@ -316,7 +308,7 @@ impl Interpreter {
                 self.loop_depth -= 1;
                 Ok(())
             }
-            Stmt::For(var, start_expr, end_expr, step_expr, body, _) => {
+            Stmt::For(var, start_expr, end_expr, step_expr, body, _, _) => {
                 let start_val = self.eval_expr(start_expr)?;
                 let end_val = self.eval_expr(end_expr)?;
                 let step_val = if let Some(step_expr) = step_expr {
@@ -394,7 +386,7 @@ impl Interpreter {
                 self.break_flag = true;
                 Ok(())
             }
-            Stmt::Func(name, params, body, _, _) => {
+            Stmt::Func(name, params, body, _, _, _) => {
                 self.env
                     .borrow_mut()
                     .define(*name, Binding::UserFunction(params.clone(), body.clone()));
@@ -423,37 +415,63 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Import(path, alias, span) => {
-                let module_name = if let Some(stripped) = path.strip_suffix(".hi") {
-                    stripped.to_string()
-                } else {
-                    path.clone()
-                };
-                let module_sym = hi_common::intern(&module_name);
-
-                // Временный блок, чтобы освободить borrow
-                let found_module = {
-                    let env = self.env.borrow();
-                    match env.lookup(module_sym) {
-                        Some(Binding::Module(m)) => Some(m.clone()),
-                        _ => None,
+                // Determine if it's a user module or built-in
+                if path.ends_with(".hi") {
+                    // User module: ensure it's not a built-in name
+                    let module_name = path.trim_end_matches(".hi");
+                    let module_sym = hi_common::intern(module_name);
+                    // Check if it's a built-in module (should not happen, but guard)
+                    if builtins::get_module_functions_map().contains_key(&module_sym) {
+                        return Err(InterpError::Runtime {
+                            span: *span,
+                            message: format!(
+                                "Cannot import built-in module '{}' with .hi extension. Use 'IMPORT \"{}\"'.",
+                                module_name, module_name
+                            ),
+                        });
                     }
-                };
-
-                if let Some(module_rc) = found_module {
-                    self.attach_module(module_rc, alias.as_ref(), span)?;
-                    return Ok(());
+                    // Load user module from disk
+                    let base_dir = self
+                        .current_file
+                        .as_ref()
+                        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                        .unwrap_or_else(|| {
+                            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                        });
+                    let import_path = base_dir.join(path);
+                    self.load_user_module(&import_path, alias.as_ref(), span)?;
+                } else {
+                    // Built-in module: must exist
+                    let module_sym = hi_common::intern(path);
+                    if !builtins::get_module_functions_map().contains_key(&module_sym) {
+                        return Err(InterpError::Runtime {
+                            span: *span,
+                            message: format!(
+                                "Unknown module '{}'. If this is a user module, use '.hi' extension.",
+                                path
+                            ),
+                        });
+                    }
+                    // Check if already loaded (from previous imports)
+                    let found_module = {
+                        let env = self.env.borrow();
+                        match env.lookup(module_sym) {
+                            Some(Binding::Module(m)) => Some(m.clone()),
+                            _ => None,
+                        }
+                    };
+                    if let Some(module_rc) = found_module {
+                        self.attach_module(module_rc, alias.as_ref(), span)?;
+                    } else {
+                        return Err(InterpError::Runtime {
+                            span: *span,
+                            message: format!(
+                                "Built-in module '{}' not found (internal error)",
+                                path
+                            ),
+                        });
+                    }
                 }
-
-                // ... грузим с диска
-                let base_dir = self
-                    .current_file
-                    .as_ref()
-                    .and_then(|p| p.parent().map(|p| p.to_path_buf()))
-                    .unwrap_or_else(|| {
-                        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-                    });
-                let import_path = base_dir.join(&path);
-                self.load_user_module(&import_path, alias.as_ref(), span)?;
                 Ok(())
             }
         }
@@ -682,7 +700,7 @@ impl Interpreter {
                 path: abs_path.display().to_string(),
             });
         }
-        // Cash
+        // Cache
         if let Some(module) = self.modules_cache.get(&abs_path) {
             return self.attach_module(module.clone(), alias, span);
         }
@@ -786,6 +804,24 @@ impl Interpreter {
                     "Cannot assign to index of type {}",
                     crate::utils::type_name(&base_val)
                 ),
+            }),
+        }
+    }
+
+    fn assign_to_lvalue(&mut self, left: &Expr, value: Value, span: &Span) -> InterpResult<()> {
+        match left {
+            Expr::Variable(name, _) => {
+                self.env.borrow_mut().assign(*name, value, span)?;
+                Ok(())
+            }
+            Expr::Index(base, index, span) => {
+                let base_val = self.eval_expr(base)?;
+                let idx_val = self.eval_expr(index)?;
+                self.assign_index(base_val, idx_val, value, *span)
+            }
+            _ => Err(InterpError::Runtime {
+                span: *span,
+                message: "Invalid left-hand side for assignment".to_string(),
             }),
         }
     }

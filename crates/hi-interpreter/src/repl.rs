@@ -76,10 +76,6 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
             }
             continue;
         }
-        if trimmed == ":stack" {
-            println!("Stack is not used in AST mode.");
-            continue;
-        }
 
         if trimmed.starts_with(":load") {
             // Extract the argument after `:load` – may be quoted.

@@ -1,3 +1,10 @@
+//! Built-in functions and modules registration.
+//!
+//! This module defines the core built-in functions and modules available in the Hi language.
+//! It uses the `inventory` crate for compile-time registration of global functions,
+//! module functions, and module variables. The module also provides helper functions
+//! to retrieve these items as `Symbol`-based structures for use in the interpreter.
+
 use crate::ast::Span;
 use crate::error::InterpResult;
 use crate::interpreter::Interpreter;
@@ -5,14 +12,19 @@ use crate::value::Value;
 use hi_common::Symbol;
 use std::collections::HashMap;
 
+/// List of all reserved keywords in the Hi language.
 pub const KEYWORDS: &[&str] = &[
     "LET", "INPUT", "IF", "THEN", "ELSE", "END", "WHILE", "DO", "FOR", "TO", "NEXT", "FUNC", "RET",
     "BREAK", "PRINT", "IMPORT", "AS", "TRUE", "FALSE", "AND", "OR", "NOT",
 ];
 
+/// Type alias for a built-in function implementation.
+///
+/// Built-in functions take the interpreter, a slice of argument values, and a span
+/// for error reporting, and return a `Value` or an interpreter error.
 pub type BuiltinFnImpl = fn(&mut Interpreter, &[Value], &Span) -> InterpResult<Value>;
 
-// ---------- Структуры для inventory (остаются со строками) ----------
+// ---------- Structures for inventory (use string literals) ----------
 #[derive(Clone)]
 pub struct GlobalFunction {
     pub name: &'static str,
@@ -40,7 +52,7 @@ inventory::collect!(GlobalFunction);
 inventory::collect!(ModuleFunction);
 inventory::collect!(ModuleVariable);
 
-// ---------- Структуры для внешнего API (с Symbol) ----------
+// ---------- Structures for the external API (using Symbol) ----------
 #[derive(Clone)]
 pub struct GlobalFunctionSym {
     pub name: Symbol,
@@ -58,7 +70,7 @@ pub struct ModuleFunctionSym {
     pub func: BuiltinFnImpl,
 }
 
-/// Возвращает список глобальных функций в виде Symbol.
+/// Returns a list of global functions as `Symbol`-based structures.
 pub fn get_global_functions() -> Vec<GlobalFunctionSym> {
     inventory::iter::<GlobalFunction>
         .into_iter()
@@ -71,7 +83,7 @@ pub fn get_global_functions() -> Vec<GlobalFunctionSym> {
         .collect()
 }
 
-/// Возвращает список функций модулей с Symbol.
+/// Returns a list of module functions as `Symbol`-based structures.
 pub fn get_module_functions() -> Vec<ModuleFunctionSym> {
     inventory::iter::<ModuleFunction>
         .into_iter()
@@ -85,7 +97,7 @@ pub fn get_module_functions() -> Vec<ModuleFunctionSym> {
         .collect()
 }
 
-/// Строит мапу модуль (Symbol) -> список функций с Symbol.
+/// Builds a map from module `Symbol` to a list of its functions (`ModuleFunctionSym`).
 pub fn get_module_functions_map() -> HashMap<Symbol, Vec<ModuleFunctionSym>> {
     let mut map = HashMap::new();
     for func in get_module_functions() {
@@ -94,7 +106,7 @@ pub fn get_module_functions_map() -> HashMap<Symbol, Vec<ModuleFunctionSym>> {
     map
 }
 
-/// Возвращает список переменных модулей (имя как Symbol).
+/// Returns a list of module variables as pairs of `(module_symbol, variable_symbol)`.
 pub fn get_module_variables() -> Vec<(Symbol, Symbol)> {
     inventory::iter::<ModuleVariable>
         .into_iter()
@@ -102,7 +114,7 @@ pub fn get_module_variables() -> Vec<(Symbol, Symbol)> {
         .collect()
 }
 
-/// Строит мапу модуль (Symbol) -> список имён переменных (Symbol).
+/// Builds a map from module `Symbol` to a list of its variable symbols.
 pub fn get_module_variables_map() -> HashMap<Symbol, Vec<Symbol>> {
     let mut map = HashMap::new();
     for (module, var) in get_module_variables() {

@@ -16,6 +16,21 @@ Comments start with `//` and continue to the end of the line:
 LET x = 5   // This is also a comment
 ```
 
+#### Documentation comments
+
+Documentation comments start with `///` (three slashes) and are used to attach descriptive text to the following
+function or module definition. They are not part of the program logic, but are stored in the AST and can be used by
+tools such as the Language Server Protocol (LSP) to provide hover information and documentation inside editors.
+
+```hi
+/// Returns the square of a number.
+FUNC square(x)
+    RET x * x
+END
+```
+
+Doc comments can span multiple lines by starting each line with `///`.
+
 ### Case Sensitivity
 
 - **Keywords** (`LET`, `IF`, `WHILE`, `FUNC`, `PRINT`, etc.) must be written in **UPPERCASE**.
@@ -133,10 +148,10 @@ Operators are listed below in **decreasing precedence** (higher binds tighter):
 
 Unary operators have higher precedence than all binary operators:
 
-| Precedence | Operator | Description    |
-|------------|----------|----------------|
-| 8          | `-`      | Unary negation |
-| 8          | `NOT`    | Logical NOT    |
+| Precedence | Operator       | Description                     |
+|------------|----------------|---------------------------------|
+| 8          | `-`            | Unary negation                  |
+| 8          | `NOT` (or `!`) | Logical NOT (both are synonyms) |
 
 Parentheses `( )` can override precedence.
 
@@ -199,6 +214,30 @@ mydict["age"] = 30
 ```
 
 Assigning to a variable that has **not** been declared with `LET` is an error. Use `LET` for the first assignment.
+
+#### Compound Assignment
+
+Hi also supports compound assignment operators that combine an arithmetic operation with assignment:
+
+| Operator | Meaning           |
+|----------|-------------------|
+| `+=`     | `lhs = lhs + rhs` |
+| `-=`     | `lhs = lhs - rhs` |
+| `*=`     | `lhs = lhs * rhs` |
+| `/=`     | `lhs = lhs / rhs` |
+| `%=`     | `lhs = lhs % rhs` |
+| `^=`     | `lhs = lhs ^ rhs` |
+
+These operators work only when the left-hand side is a simple variable or an indexed element (list/dict). They evaluate
+the left-hand side once, then apply the operation and assign the result back.
+
+Examples:
+
+```hi
+x += 5          // same as x = x + 5
+list[0] *= 2    // double the first element
+mydict["key"] ^= 2   // square the value
+```
 
 ### Print
 

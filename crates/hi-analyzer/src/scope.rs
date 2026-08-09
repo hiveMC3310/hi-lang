@@ -1,11 +1,11 @@
-//! Scoping and resolution.
+//! Scoping and symbol resolution.
 
 use crate::symbol::Symbol as Sym;
 use hi_common::Symbol;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Простая цепочка областей видимости.
+/// Simple chain of scopes.
 #[derive(Debug, Clone)]
 pub struct Scope {
     symbols: HashMap<Symbol, Sym>,
@@ -20,7 +20,7 @@ impl Scope {
         }
     }
 
-    /// Создаёт дочернюю область видимости.
+    /// Creates a child scope.
     pub fn child(&self) -> Self {
         Scope {
             symbols: HashMap::new(),
@@ -28,14 +28,14 @@ impl Scope {
         }
     }
 
-    /// Ищет символ по имени, поднимаясь по цепочке.
+    /// Looks up a symbol by name, walking up the chain.
     pub fn lookup(&self, name: Symbol) -> Option<&Sym> {
         self.symbols
             .get(&name)
             .or_else(|| self.parent.as_ref().and_then(|p| p.lookup(name)))
     }
 
-    /// Определяет символ в текущей области.
+    /// Defines a symbol in the current scope.
     pub fn define(&mut self, sym: Sym) {
         self.symbols.insert(sym.name, sym);
     }

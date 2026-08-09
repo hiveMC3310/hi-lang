@@ -31,31 +31,60 @@ original.
 
 ## 📦 Installation
 
-The easiest way to get started is to **download a pre‑built binary** from
-the [Releases](https://github.com/hiveMC3310/hi-lang/releases) page.  
-Choose the executable for your platform (Windows, Linux, macOS) and place it somewhere in your `PATH`.
+### Pre‑built Binaries (Recommended)
 
-Alternatively, you can build from source:
+The easiest way to get started is to download the latest release from the
+*[Releases](https://github.com/hiveMC3310/hi-lang/releases)* page.  
+Each release includes both the interpreter (`hi`) and the Language Server (`hi-lsp`) for the following platforms:
+
+| Platform                  | Archive                                         |
+|---------------------------|-------------------------------------------------|
+| **Linux (x86_64, musl)**  | `hi-<version>-x86_64-unknown-linux-musl.tar.gz` |
+| **Windows (x86_64)**      | `hi-<version>-x86_64-pc-windows-msvc.zip`       |
+| **macOS (Apple Silicon)** | `hi-<version>-aarch64-apple-darwin.tar.gz`      |
+
+1. Download the archive for your platform.
+2. Extract it to a directory of your choice.
+3. (Optional) Add that directory to your `PATH` for easy access.
+
+After extraction, you will have two executables:
+
+- `hi` – the interpreter (use it to run `.hi` scripts or start the REPL).
+- `hi-lsp` – the Language Server (used by editors like VS Code).
+
+### Building from Source
+
+If you prefer to compile from source, you'll need Rust installed:
 
 ```bash
 git clone https://github.com/hiveMC3310/hi-lang.git
 cd hi-lang
-cargo build --release
+cargo build --release --bin hi --bin hi-lsp
 ```
 
-The binary will be placed at `target/release/hi` (or `hi.exe` on Windows).
+The binaries will be placed at `target/release/hi` and `target/release/hi-lsp` (or with `.exe` on Windows).
 
 ---
 
 ## 🚀 Usage
 
-Run a Hi program:
+### Running a Hi Script
 
 ```bash
 hi path/to/program.hi
 ```
 
-You can also start the interactive REPL by running `hi` without arguments.
+### Starting the REPL
+
+```bash
+hi
+```
+
+### Using the Language Server
+
+The `hi-lsp` binary implements the [Language Server Protocol](https://microsoft.github.io/language-server-protocol/) and
+can be used with any compatible editor.  
+For **VS Code**, we provide a dedicated extension – see the [VS Code Extension](#-vs-code-extension) section below.
 
 ---
 
@@ -261,6 +290,24 @@ The full language reference (including all built‑in functions, syntax details,
 *mdBook**:
 
 👉 **[Hi Language Reference](https://hiveMC3310.github.io/hi-lang/)** (or read it locally in the `docs/` folder)
+
+---
+
+## 🖥️ VS Code Extension
+
+For the best editing experience, we provide an
+official [VS Code extension](https://github.com/hiveMC3310/hi-lang-support) that integrates the `hi-lsp` server,
+offering:
+
+- Syntax highlighting.
+- Auto‑completion for keywords, built‑ins, and module members.
+- Hover information and go‑to‑definition.
+- Rename and find references.
+- Inline diagnostics (errors/warnings).
+- One‑click script execution.
+
+After installing the extension, make sure `hi-lsp` is either in your `PATH` or configured via the `hi.serverPath`
+setting.
 
 ---
 

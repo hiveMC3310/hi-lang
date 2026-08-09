@@ -10,7 +10,7 @@ use std::path::Path;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// ---------- Вспомогательная функция ----------
+// ---------- Helper function ----------
 fn get_string_arg(val: &Value, func_name: &str, span: &Span) -> InterpResult<String> {
     match val {
         Value::String(s) => Ok(s.clone()),
