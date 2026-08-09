@@ -85,9 +85,10 @@ jobs:
             tar czf ../hi-${{ github.ref_name }}-${{ matrix.target }}.tar.gz .
           fi
       - name: Generate checksums
+        shell: bash
         run: |
           cd release
-          shasum -a 256 * > ../checksums-${{ matrix.target }}.txt
+          sha256sum * > ../checksums-${{ matrix.target }}.txt
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
