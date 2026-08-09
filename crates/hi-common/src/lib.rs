@@ -45,7 +45,14 @@ impl Interner {
 
 impl fmt::Display for Symbol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", INTERNER.lock()        .expect("Interner mutex is poisoned").resolve(*self))
+        write!(
+            f,
+            "{}",
+            INTERNER
+                .lock()
+                .expect("Interner mutex is poisoned")
+                .resolve(*self)
+        )
     }
 }
 
@@ -55,11 +62,18 @@ lazy_static::lazy_static! {
 
 /// Global function to intern a string.
 pub fn intern(s: &str) -> Symbol {
-    INTERNER.lock()        .expect("Interner mutex is poisoned").intern(s)
+    INTERNER
+        .lock()
+        .expect("Interner mutex is poisoned")
+        .intern(s)
 }
 
 /// Global function to resolve a symbol (returns a `String` for convenience,
 /// but prefer using `Display` or direct `&str` access via the `Interner`).
 pub fn resolve(sym: Symbol) -> String {
-    INTERNER.lock()        .expect("Interner mutex is poisoned").resolve(sym).to_owned()
+    INTERNER
+        .lock()
+        .expect("Interner mutex is poisoned")
+        .resolve(sym)
+        .to_owned()
 }
