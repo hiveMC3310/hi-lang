@@ -11,6 +11,7 @@ use std::sync::Mutex;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Symbol(u32);
 
+#[derive(Default)]
 pub struct Interner {
     strings: Vec<Box<str>>,
     map: HashMap<Box<str>, Symbol>,
