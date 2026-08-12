@@ -167,45 +167,47 @@ impl LanguageServer for Backend {
                 // built-in
                 let module_funcs = builtins::get_module_functions_map();
                 if let Some(funcs) = module_funcs.get(&module_sym)
-                    && let Some(mf) = funcs.iter().find(|f| f.name == func_sym) {
-                        let params_str = Self::format_params(&mf.params);
-                        let mut content = format!(
-                            "```hi\n{}:{}({})\n```\n\n*function*",
-                            module_str, func_str, params_str
-                        );
-                        if !mf.doc.is_empty() {
-                            content.push_str("\n\n---\n");
-                            content.push_str(mf.doc);
-                        }
-                        return Ok(Some(Hover {
-                            contents: HoverContents::Markup(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: content,
-                            }),
-                            range: Some(span_to_range(span)),
-                        }));
+                    && let Some(mf) = funcs.iter().find(|f| f.name == func_sym)
+                {
+                    let params_str = Self::format_params(&mf.params);
+                    let mut content = format!(
+                        "```hi\n{}:{}({})\n```\n\n*function*",
+                        module_str, func_str, params_str
+                    );
+                    if !mf.doc.is_empty() {
+                        content.push_str("\n\n---\n");
+                        content.push_str(mf.doc);
                     }
+                    return Ok(Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: content,
+                        }),
+                        range: Some(span_to_range(span)),
+                    }));
+                }
 
                 // user-defined
                 if let Some(symbols) = result.loaded_module_exports.get(&module_sym)
-                    && let Some(sym) = symbols.iter().find(|s| s.name == func_sym) {
-                        let params_str = Self::format_info_params(&sym.kind);
-                        let mut content = format!(
-                            "```hi\n{}:{}({})\n```\n\n*function*",
-                            module_str, func_str, params_str
-                        );
-                        if let Some(doc) = &sym.doc {
-                            content.push_str("\n\n---\n");
-                            content.push_str(doc);
-                        }
-                        return Ok(Some(Hover {
-                            contents: HoverContents::Markup(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: content,
-                            }),
-                            range: Some(span_to_range(span)),
-                        }));
+                    && let Some(sym) = symbols.iter().find(|s| s.name == func_sym)
+                {
+                    let params_str = Self::format_info_params(&sym.kind);
+                    let mut content = format!(
+                        "```hi\n{}:{}({})\n```\n\n*function*",
+                        module_str, func_str, params_str
+                    );
+                    if let Some(doc) = &sym.doc {
+                        content.push_str("\n\n---\n");
+                        content.push_str(doc);
                     }
+                    return Ok(Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: content,
+                        }),
+                        range: Some(span_to_range(span)),
+                    }));
+                }
             }
 
             // 1.5 module:var
@@ -223,31 +225,31 @@ impl LanguageServer for Backend {
                 // built-in
                 let module_vars = builtins::get_module_variables_map();
                 if let Some(vars) = module_vars.get(&module_sym)
-                    && vars.contains(&var_sym) {
-                        let content =
-                            format!("```hi\n{}:{}\n```\n\n*variable*", module_str, var_str);
-                        return Ok(Some(Hover {
-                            contents: HoverContents::Markup(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: content,
-                            }),
-                            range: Some(span_to_range(span)),
-                        }));
-                    }
+                    && vars.contains(&var_sym)
+                {
+                    let content = format!("```hi\n{}:{}\n```\n\n*variable*", module_str, var_str);
+                    return Ok(Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: content,
+                        }),
+                        range: Some(span_to_range(span)),
+                    }));
+                }
 
                 // user-defined
                 if let Some(symbols) = result.loaded_module_exports.get(&module_sym)
-                    && symbols.iter().any(|s| s.name == var_sym) {
-                        let content =
-                            format!("```hi\n{}:{}\n```\n\n*variable*", module_str, var_str);
-                        return Ok(Some(Hover {
-                            contents: HoverContents::Markup(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: content,
-                            }),
-                            range: Some(span_to_range(span)),
-                        }));
-                    }
+                    && symbols.iter().any(|s| s.name == var_sym)
+                {
+                    let content = format!("```hi\n{}:{}\n```\n\n*variable*", module_str, var_str);
+                    return Ok(Some(Hover {
+                        contents: HoverContents::Markup(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: content,
+                        }),
+                        range: Some(span_to_range(span)),
+                    }));
+                }
             }
 
             // 2. symbol at
@@ -557,12 +559,13 @@ impl LanguageServer for Backend {
         };
 
         if let Some(result) = analysis
-            && let Some(def_span) = result.definition_at(line, col) {
-                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                    uri,
-                    range: span_to_range(&def_span),
-                })));
-            }
+            && let Some(def_span) = result.definition_at(line, col)
+        {
+            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                uri,
+                range: span_to_range(&def_span),
+            })));
+        }
         Ok(None)
     }
 

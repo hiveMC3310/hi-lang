@@ -418,15 +418,13 @@ fn min_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Valu
                     Ok(Value::Float(min_val))
                 }
             }
-            _ => {
-                Err(InterpError::Runtime {
-                    span: *span,
-                    message: format!(
-                        "min() expects either two numbers or a list of numbers, got {}",
-                        crate::utils::type_name(&args[0])
-                    ),
-                })
-            }
+            _ => Err(InterpError::Runtime {
+                span: *span,
+                message: format!(
+                    "min() expects either two numbers or a list of numbers, got {}",
+                    crate::utils::type_name(&args[0])
+                ),
+            }),
         }
     } else {
         Err(InterpError::Runtime {
@@ -493,15 +491,13 @@ fn max_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Valu
                     Ok(Value::Float(max_val))
                 }
             }
-            _ => {
-                Err(InterpError::Runtime {
-                    span: *span,
-                    message: format!(
-                        "max() expects either two numbers or a list of numbers, got {}",
-                        crate::utils::type_name(&args[0])
-                    ),
-                })
-            }
+            _ => Err(InterpError::Runtime {
+                span: *span,
+                message: format!(
+                    "max() expects either two numbers or a list of numbers, got {}",
+                    crate::utils::type_name(&args[0])
+                ),
+            }),
         }
     } else {
         Err(InterpError::Runtime {

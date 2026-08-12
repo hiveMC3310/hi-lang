@@ -857,7 +857,11 @@ mod tests {
         END
         "#;
         let result = analyze_program(code);
-        let uses_param: Vec<_> = result.uses.iter().filter(|(_, s)| *s == intern("param")).collect();
+        let uses_param: Vec<_> = result
+            .uses
+            .iter()
+            .filter(|(_, s)| *s == intern("param"))
+            .collect();
         assert_eq!(uses_param.len(), 1, "Expected one use of 'param'");
     }
 }
