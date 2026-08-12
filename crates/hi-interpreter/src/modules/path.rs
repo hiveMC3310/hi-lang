@@ -90,7 +90,7 @@ fn dirname_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
         if trimmed.is_empty() {
             return Ok(Value::Nil);
         }
-        return Ok(Value::String(trimmed.to_string()));
+        Ok(Value::String(trimmed.to_string()))
     } else {
         let path = Path::new(s);
         match path.parent() {
@@ -142,7 +142,7 @@ inventory::submit! {
 }
 
 // ---------- is_absolute ----------
-fn is_absolute_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
+fn isabsolute_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
     if args.len() != 1 {
         return Err(InterpError::Runtime {
             span: *span,
@@ -156,10 +156,10 @@ fn is_absolute_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpRes
 inventory::submit! {
     ModuleFunction {
         module: "path",
-        name: "is_absolute",
+        name: "isabsolute",
         params: &["path"],
         doc: "Returns true if the path is absolute, false otherwise.",
-        func: is_absolute_fn,
+        func: isabsolute_fn,
     }
 }
 
@@ -183,10 +183,8 @@ fn normalize_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResul
                 // skip
             }
             std::path::Component::ParentDir => {
-                if !result.pop() {
-                    if result.as_os_str().is_empty() {
-                        result.push("..");
-                    }
+                if !result.pop() && result.as_os_str().is_empty() {
+                    result.push("..");
                 }
             }
             _ => {

@@ -4,6 +4,7 @@
 //! It uses the `inventory` crate for compile-time registration of global functions,
 //! module functions, and module variables. The module also provides helper functions
 //! to retrieve these items as `Symbol`-based structures for use in the interpreter.
+#![allow(dead_code)]
 
 use crate::ast::Span;
 use crate::error::InterpResult;

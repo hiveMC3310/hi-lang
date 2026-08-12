@@ -1,3 +1,5 @@
+#![allow(clippy::mutable_key_type)]
+#![allow(deprecated)]
 use crate::ast::Span;
 use crate::builtins::ModuleFunction;
 use crate::error::{InterpError, InterpResult};
@@ -86,37 +88,37 @@ fn dict_to_datetime(dict_val: &Value, span: &Span) -> InterpResult<NaiveDateTime
     let millisecond = get_int("millisecond")?;
 
     // Validate ranges (chrono will panic if out of range, so we check)
-    if month < 1 || month > 12 {
+    if !(1..=12).contains(&month) {
         return Err(InterpError::Runtime {
             span: *span,
             message: format!("Month must be 1..12, got {}", month),
         });
     }
-    if day < 1 || day > 31 {
+    if !(1..=31).contains(&day) {
         return Err(InterpError::Runtime {
             span: *span,
             message: format!("Day must be 1..31, got {}", day),
         });
     }
-    if hour < 0 || hour > 23 {
+    if !(0..=23).contains(&hour) {
         return Err(InterpError::Runtime {
             span: *span,
             message: format!("Hour must be 0..23, got {}", hour),
         });
     }
-    if minute < 0 || minute > 59 {
+    if !(0..=59).contains(&minute) {
         return Err(InterpError::Runtime {
             span: *span,
             message: format!("Minute must be 0..59, got {}", minute),
         });
     }
-    if second < 0 || second > 59 {
+    if !(0..=59).contains(&second) {
         return Err(InterpError::Runtime {
             span: *span,
             message: format!("Second must be 0..59, got {}", second),
         });
     }
-    if millisecond < 0 || millisecond > 999 {
+    if !(0..=999).contains(&millisecond) {
         return Err(InterpError::Runtime {
             span: *span,
             message: format!("Millisecond must be 0..999, got {}", millisecond),

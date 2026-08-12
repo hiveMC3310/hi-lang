@@ -27,7 +27,7 @@ fn get_number_arg(
             message: format!(
                 "{}() expects a number, got {}",
                 name,
-                crate::utils::type_name(&val)
+                crate::utils::type_name(val)
             ),
         }),
     }
@@ -130,7 +130,7 @@ inventory::submit! {
 // asin
 fn asin_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
     let num = get_number_arg(interp, args, span, "asin")?;
-    if num < -1.0 || num > 1.0 {
+    if !(-1.0..=1.0).contains(&num) {
         return Err(InterpError::Runtime {
             span: *span,
             message: "asin() argument must be between -1 and 1".to_string(),
@@ -151,7 +151,7 @@ inventory::submit! {
 // acos
 fn acos_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
     let num = get_number_arg(interp, args, span, "acos")?;
-    if num < -1.0 || num > 1.0 {
+    if !(-1.0..=1.0).contains(&num) {
         return Err(InterpError::Runtime {
             span: *span,
             message: "acos() argument must be between -1 and 1".to_string(),
@@ -419,13 +419,13 @@ fn min_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Valu
                 }
             }
             _ => {
-                return Err(InterpError::Runtime {
+                Err(InterpError::Runtime {
                     span: *span,
                     message: format!(
                         "min() expects either two numbers or a list of numbers, got {}",
                         crate::utils::type_name(&args[0])
                     ),
-                });
+                })
             }
         }
     } else {
@@ -494,13 +494,13 @@ fn max_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Valu
                 }
             }
             _ => {
-                return Err(InterpError::Runtime {
+                Err(InterpError::Runtime {
                     span: *span,
                     message: format!(
                         "max() expects either two numbers or a list of numbers, got {}",
                         crate::utils::type_name(&args[0])
                     ),
-                });
+                })
             }
         }
     } else {

@@ -163,7 +163,7 @@ fn findall_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
 inventory::submit! {
     ModuleFunction {
         module: "regex",
-        name: "find_all",
+        name: "findall",
         params: &["pattern", "string"],
         doc: "Finds all matches of the pattern and returns them as a list of strings.",
         func: findall_fn,

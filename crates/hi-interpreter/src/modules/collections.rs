@@ -62,7 +62,7 @@ fn map_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult
     let mut result = Vec::with_capacity(list.len());
 
     for elem in list.iter() {
-        let res = call_func(interp, func, &[elem.clone()], span)?;
+        let res = call_func(interp, func, std::slice::from_ref(elem), span)?;
         result.push(res);
     }
 
@@ -194,7 +194,7 @@ fn filter_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpRes
     let mut result = Vec::new();
 
     for elem in list.iter() {
-        let res = call_func(interp, pred, &[elem.clone()], span)?;
+        let res = call_func(interp, pred, std::slice::from_ref(elem), span)?;
         if res.as_bool() {
             result.push(elem.clone());
         }
@@ -288,7 +288,7 @@ fn any_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult
 
     let list = list_rc.borrow();
     for elem in list.iter() {
-        let res = call_func(interp, pred, &[elem.clone()], span)?;
+        let res = call_func(interp, pred, std::slice::from_ref(elem), span)?;
         if res.as_bool() {
             return Ok(Value::Bool(true));
         }
@@ -334,7 +334,7 @@ fn all_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult
 
     let list = list_rc.borrow();
     for elem in list.iter() {
-        let res = call_func(interp, pred, &[elem.clone()], span)?;
+        let res = call_func(interp, pred, std::slice::from_ref(elem), span)?;
         if !res.as_bool() {
             return Ok(Value::Bool(false));
         }
@@ -380,7 +380,7 @@ fn find_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpResul
 
     let list = list_rc.borrow();
     for elem in list.iter() {
-        let res = call_func(interp, pred, &[elem.clone()], span)?;
+        let res = call_func(interp, pred, std::slice::from_ref(elem), span)?;
         if res.as_bool() {
             return Ok(elem.clone());
         }

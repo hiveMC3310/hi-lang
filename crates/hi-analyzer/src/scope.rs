@@ -12,6 +12,12 @@ pub struct Scope {
     parent: Option<Arc<Scope>>,
 }
 
+impl Default for Scope {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Scope {
     pub fn new() -> Self {
         Self {

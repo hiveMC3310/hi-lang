@@ -1,4 +1,5 @@
 //! Interpreter for the Hi language, executes AST.
+#![allow(clippy::mutable_key_type)]
 
 use crate::ast::{BinOp, Block, Expr, Program, Span, Stmt, UnOp};
 use crate::builtins;
@@ -26,6 +27,12 @@ pub enum Binding {
 pub struct Environment {
     pub parent: Option<Rc<RefCell<Environment>>>,
     bindings: HashMap<Symbol, Binding>,
+}
+
+impl Default for Environment {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Environment {
@@ -89,6 +96,12 @@ pub struct Interpreter {
     load_stack: Vec<PathBuf>,
 }
 
+impl Default for Interpreter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Interpreter {
     pub fn new() -> Self {
         let mut s = Self {
@@ -101,7 +114,7 @@ impl Interpreter {
             load_stack: Vec::new(),
             current_file: None,
         };
-        Self::init_builtins(&mut *s.env.borrow_mut());
+        Self::init_builtins(&mut s.env.borrow_mut());
         s.init_globals();
         s
     }
@@ -387,9 +400,10 @@ impl Interpreter {
                 Ok(())
             }
             Stmt::Func(name, params, body, _, _, _) => {
+                let param_names: Vec<Symbol> = params.iter().map(|(s, _)| *s).collect();
                 self.env
                     .borrow_mut()
-                    .define(*name, Binding::UserFunction(params.clone(), body.clone()));
+                    .define(*name, Binding::UserFunction(param_names, body.clone()));
                 Ok(())
             }
             Stmt::Return(expr, _) => {
@@ -517,7 +531,7 @@ impl Interpreter {
                     },
                 }
             }
-            Expr::Call(name, args, span) => {
+            Expr::Call(name, args, _, span) => {
                 let binding =
                     self.env
                         .borrow()
@@ -641,7 +655,7 @@ impl Interpreter {
                     }),
                 }
             }
-            Expr::ModuleAccess(module_name, var_name, span) => {
+            Expr::ModuleAccess(module_name, var_name, _, span) => {
                 let module_val = self.eval_expr(&Expr::Variable(*module_name, *span))?;
                 match module_val {
                     Value::Module(module_rc) => {
@@ -664,7 +678,7 @@ impl Interpreter {
                     }),
                 }
             }
-            Expr::CallModule(module_name, func_name, args, span) => {
+            Expr::CallModule(module_name, func_name, args, _, span) => {
                 let module_val = self.eval_expr(&Expr::Variable(*module_name, *span))?;
                 match module_val {
                     Value::Module(module_rc) => {
@@ -694,22 +708,26 @@ impl Interpreter {
             source: e,
             span: Some(*span),
         })?;
-        // Cyclic check
+
+        // Cyclic import
         if self.load_stack.contains(&abs_path) {
             return Err(InterpError::CyclicImport {
                 path: abs_path.display().to_string(),
             });
         }
+
         // Cache
         if let Some(module) = self.modules_cache.get(&abs_path) {
             return self.attach_module(module.clone(), alias, span);
         }
 
-        // New Env
-        let module_env = Rc::new(RefCell::new(Environment::new()));
+        let module_env = Rc::new(RefCell::new(Environment::child(self.env.clone())));
         let old_env = std::mem::replace(&mut self.env, module_env.clone());
         let old_return = self.return_value.take();
         let old_break = self.break_flag;
+
+        let old_file = self.current_file.clone();
+        self.current_file = Some(abs_path.clone());
 
         let source = std::fs::read_to_string(&abs_path).map_err(|e| InterpError::Io {
             source: e,
@@ -731,7 +749,8 @@ impl Interpreter {
         }
         self.load_stack.pop();
 
-        // Save Env
+        // Восстанавливаем всё
+        self.current_file = old_file;
         self.env = old_env;
         self.return_value = old_return;
         self.break_flag = old_break;

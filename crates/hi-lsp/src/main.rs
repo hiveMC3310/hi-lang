@@ -166,8 +166,8 @@ impl LanguageServer for Backend {
 
                 // built-in
                 let module_funcs = builtins::get_module_functions_map();
-                if let Some(funcs) = module_funcs.get(&module_sym) {
-                    if let Some(mf) = funcs.iter().find(|f| f.name == func_sym) {
+                if let Some(funcs) = module_funcs.get(&module_sym)
+                    && let Some(mf) = funcs.iter().find(|f| f.name == func_sym) {
                         let params_str = Self::format_params(&mf.params);
                         let mut content = format!(
                             "```hi\n{}:{}({})\n```\n\n*function*",
@@ -185,11 +185,10 @@ impl LanguageServer for Backend {
                             range: Some(span_to_range(span)),
                         }));
                     }
-                }
 
                 // user-defined
-                if let Some(symbols) = result.loaded_module_exports.get(&module_sym) {
-                    if let Some(sym) = symbols.iter().find(|s| s.name == func_sym) {
+                if let Some(symbols) = result.loaded_module_exports.get(&module_sym)
+                    && let Some(sym) = symbols.iter().find(|s| s.name == func_sym) {
                         let params_str = Self::format_info_params(&sym.kind);
                         let mut content = format!(
                             "```hi\n{}:{}({})\n```\n\n*function*",
@@ -207,7 +206,6 @@ impl LanguageServer for Backend {
                             range: Some(span_to_range(span)),
                         }));
                     }
-                }
             }
 
             // 1.5 module:var
@@ -224,8 +222,8 @@ impl LanguageServer for Backend {
 
                 // built-in
                 let module_vars = builtins::get_module_variables_map();
-                if let Some(vars) = module_vars.get(&module_sym) {
-                    if vars.contains(&var_sym) {
+                if let Some(vars) = module_vars.get(&module_sym)
+                    && vars.contains(&var_sym) {
                         let content =
                             format!("```hi\n{}:{}\n```\n\n*variable*", module_str, var_str);
                         return Ok(Some(Hover {
@@ -236,11 +234,10 @@ impl LanguageServer for Backend {
                             range: Some(span_to_range(span)),
                         }));
                     }
-                }
 
                 // user-defined
-                if let Some(symbols) = result.loaded_module_exports.get(&module_sym) {
-                    if symbols.iter().any(|s| s.name == var_sym) {
+                if let Some(symbols) = result.loaded_module_exports.get(&module_sym)
+                    && symbols.iter().any(|s| s.name == var_sym) {
                         let content =
                             format!("```hi\n{}:{}\n```\n\n*variable*", module_str, var_str);
                         return Ok(Some(Hover {
@@ -251,7 +248,6 @@ impl LanguageServer for Backend {
                             range: Some(span_to_range(span)),
                         }));
                     }
-                }
             }
 
             // 2. symbol at
@@ -266,7 +262,7 @@ impl LanguageServer for Backend {
                     symbol::SymbolKind::Builtin => ("builtin", None),
                 };
 
-                let header = if !params_opt.is_none() {
+                let header = if params_opt.is_some() {
                     let params_str = Self::format_info_params(&sym.kind);
                     format!("```hi\n{}({})\n```", sym.name, params_str)
                 } else {
@@ -304,7 +300,7 @@ impl LanguageServer for Backend {
                         symbol::SymbolKind::Builtin => ("builtin", None),
                     };
 
-                    let header = if !params_opt.is_none() {
+                    let header = if params_opt.is_some() {
                         let params_str = Self::format_info_params(&sym.kind);
                         format!("```hi\n{}({})\n```", sym.name, params_str)
                     } else {
@@ -560,14 +556,13 @@ impl LanguageServer for Backend {
             cache.get(&uri).cloned()
         };
 
-        if let Some(result) = analysis {
-            if let Some(def_span) = result.definition_at(line, col) {
+        if let Some(result) = analysis
+            && let Some(def_span) = result.definition_at(line, col) {
                 return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                     uri,
                     range: span_to_range(&def_span),
                 })));
             }
-        }
         Ok(None)
     }
 
@@ -866,7 +861,7 @@ impl Backend {
 
 #[tokio::main]
 async fn main() {
-    let (service, socket) = LspService::build(|client| Backend::new(client)).finish();
+    let (service, socket) = LspService::build(Backend::new).finish();
     Server::new(tokio::io::stdin(), tokio::io::stdout(), socket)
         .serve(service)
         .await;

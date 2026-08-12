@@ -80,10 +80,10 @@ impl AnalysisResult {
             .map(|(s, _)| *s)
             .collect();
 
-        if let Some(sym) = self.symbols.iter().find(|s| s.name == name) {
-            if let Some(def_span) = sym.defined_at {
-                spans.push(def_span);
-            }
+        if let Some(sym) = self.symbols.iter().find(|s| s.name == name)
+            && let Some(def_span) = sym.defined_at
+        {
+            spans.push(def_span);
         }
         spans
     }
@@ -138,6 +138,12 @@ pub struct Analyzer {
     pub builtin_module_names: Vec<HiSymbol>,
     global_scope: Scope,
     module_cache: StdRwLock<HashMap<PathBuf, Arc<Vec<SymbolInfo>>>>,
+}
+
+impl Default for Analyzer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Analyzer {
@@ -307,7 +313,7 @@ impl<'a> FileAnalyzer<'a> {
             Func(name, params, body, doc, name_span, full_span) => {
                 self.define_symbol(
                     *name,
-                    SymbolKind::Function(params.clone()),
+                    SymbolKind::Function(params.iter().map(|(s, _)| *s).collect()),
                     *name_span,
                     doc.clone(),
                 );
@@ -324,8 +330,8 @@ impl<'a> FileAnalyzer<'a> {
                 let old_scope_env = std::mem::replace(self.scope, child);
                 self.depth += 1;
 
-                for p in params {
-                    self.define_symbol(*p, SymbolKind::Variable, *full_span, None);
+                for (p, p_span) in params {
+                    self.define_symbol(*p, SymbolKind::Variable, *p_span, None);
                 }
                 for s in body {
                     self.analyze_stmt(s);
@@ -401,8 +407,8 @@ impl<'a> FileAnalyzer<'a> {
         use Expr::*;
         match expr {
             Variable(name, span) => self.resolve_identifier(*name, *span),
-            Call(name, args, span) => {
-                self.resolve_identifier(*name, *span);
+            Call(name, args, name_span, _) => {
+                self.resolve_identifier(*name, *name_span);
                 for a in args {
                     self.analyze_expr(a);
                 }
@@ -427,25 +433,25 @@ impl<'a> FileAnalyzer<'a> {
                     self.analyze_expr(v);
                 }
             }
-            ModuleAccess(module, var, span) => {
+            ModuleAccess(module, var, name_span, _) => {
                 let real_module = *self.module_aliases.get(module).unwrap_or(module);
                 if self.scope.lookup(*module).is_none() {
-                    self.error(span, &format!("Undefined module '{}'", module));
+                    self.error(name_span, &format!("Undefined module '{}'", module));
                 } else {
                     self.result.module_accesses.push((
-                        *span,
+                        *name_span,
                         hi_common::resolve(real_module),
                         hi_common::resolve(*var),
                     ));
                 }
             }
-            CallModule(module, func, args, span) => {
+            CallModule(module, func, args, name_span, _) => {
                 let real_module = *self.module_aliases.get(module).unwrap_or(module);
                 if self.scope.lookup(*module).is_none() {
-                    self.error(span, &format!("Undefined module '{}'", module));
+                    self.error(name_span, &format!("Undefined module '{}'", module));
                 } else {
                     self.result.module_calls.push((
-                        *span,
+                        *name_span,
                         hi_common::resolve(real_module),
                         hi_common::resolve(*func),
                     ));
@@ -841,5 +847,17 @@ mod tests {
                 .iter()
                 .any(|e| e.message.contains("Unknown module"))
         );
+    }
+
+    #[test]
+    fn test_parameter_use_in_module_call() {
+        let code = r#"
+        FUNC test(param)
+            LET x = os:exists(param)
+        END
+        "#;
+        let result = analyze_program(code);
+        let uses_param: Vec<_> = result.uses.iter().filter(|(_, s)| *s == intern("param")).collect();
+        assert_eq!(uses_param.len(), 1, "Expected one use of 'param'");
     }
 }

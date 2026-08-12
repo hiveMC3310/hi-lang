@@ -1,4 +1,5 @@
 //! Custom error types for the interpreter.
+#![allow(dead_code)]
 
 use crate::ast::Span;
 use std::io;

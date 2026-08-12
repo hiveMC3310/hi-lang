@@ -266,8 +266,8 @@ impl<'a> Parser<'a> {
         let mut params = Vec::new();
         if !self.peek_if(TokenKind::RParen) {
             loop {
-                let (param, _) = self.consume_ident()?;
-                params.push(param);
+                let (param, param_span) = self.consume_ident()?;
+                params.push((param, param_span));
                 if self.peek_if(TokenKind::Comma) {
                     self.consume(TokenKind::Comma)?;
                 } else {
@@ -461,11 +461,12 @@ impl<'a> Parser<'a> {
                     self.consume(TokenKind::Colon)?;
                     let func_ident = self.consume_ident()?;
                     let func_sym = func_ident.0;
-                    let span = tok.span.merge(&func_ident.1);
+                    let var_span = func_ident.1;
+                    let full_span = tok.span.merge(&var_span);
                     if self.peek_if(TokenKind::LParen) {
-                        self.parse_call_module(*sym, func_sym, span)
+                        self.parse_call_module(*sym, func_sym, var_span)
                     } else {
-                        Ok(Expr::ModuleAccess(*sym, func_sym, span))
+                        Ok(Expr::ModuleAccess(*sym, func_sym, var_span, full_span))
                     }
                 } else {
                     Ok(Expr::Variable(*sym, tok.span))
@@ -518,8 +519,8 @@ impl<'a> Parser<'a> {
             }
         }
         let rparen = self.consume(TokenKind::RParen)?;
-        let span = name_span.merge(&rparen.span);
-        Ok(Expr::Call(name, args, span))
+        let full_span = name_span.merge(&rparen.span);
+        Ok(Expr::Call(name, args, name_span, full_span))
     }
 
     // ---- Lists: [expr, expr, ...] ----
@@ -584,8 +585,8 @@ impl<'a> Parser<'a> {
             }
         }
         let rparen = self.consume(TokenKind::RParen)?;
-        let span = name_span.merge(&rparen.span);
-        Ok(Expr::CallModule(module, func, args, span))
+        let full_span = name_span.merge(&rparen.span);
+        Ok(Expr::CallModule(module, func, args, name_span, full_span))
     }
 }
 
@@ -627,19 +628,21 @@ mod tests {
                     .collect(),
                 Span::dummy(),
             ),
-            Expr::Call(name, args, _) => Expr::Call(
+            Expr::Call(name, args, _, _) => Expr::Call(
                 name.clone(),
                 args.iter().map(strip_spans_expr).collect(),
                 Span::dummy(),
+                Span::dummy(),
             ),
-            Expr::CallModule(module, func, args, _) => Expr::CallModule(
+            Expr::CallModule(module, func, args, _, _) => Expr::CallModule(
                 module.clone(),
                 func.clone(),
                 args.iter().map(strip_spans_expr).collect(),
                 Span::dummy(),
+                Span::dummy(),
             ),
-            Expr::ModuleAccess(module, name, _) => {
-                Expr::ModuleAccess(module.clone(), name.clone(), Span::dummy())
+            Expr::ModuleAccess(module, name, _, _) => {
+                Expr::ModuleAccess(module.clone(), name.clone(), Span::dummy(), Span::dummy())
             }
         }
     }
@@ -858,13 +861,19 @@ mod tests {
                         Span::dummy()
                     )
                 ],
+                Span::dummy(),
                 Span::dummy()
             )
         );
         let expr = parse_expr_normalized("bar()");
         assert_eq!(
             expr,
-            Expr::Call(hi_common::intern("bar"), vec![], Span::dummy())
+            Expr::Call(
+                hi_common::intern("bar"),
+                vec![],
+                Span::dummy(),
+                Span::dummy()
+            )
         );
     }
 
@@ -1037,7 +1046,11 @@ mod tests {
         match &prog.stmts[0] {
             Stmt::Func(name, params, block, _, _, _) => {
                 assert_eq!(*name, hi_common::intern("add"));
-                assert_eq!(params, &[hi_common::intern("a"), hi_common::intern("b")]);
+                let param_names: Vec<Symbol> = params.iter().map(|(s, _)| *s).collect();
+                assert_eq!(
+                    param_names,
+                    vec![hi_common::intern("a"), hi_common::intern("b")]
+                );
                 assert_eq!(block.len(), 1);
                 match &block[0] {
                     Stmt::Return(Some(expr), _) => {
@@ -1251,7 +1264,7 @@ mod tests {
     fn test_module_access() {
         let expr = parse_expr_normalized("m:sin(10)");
         match expr {
-            Expr::CallModule(module, func, args, _) => {
+            Expr::CallModule(module, func, args, _, _) => {
                 assert_eq!(module, hi_common::intern("m"));
                 assert_eq!(func, hi_common::intern("sin"));
                 assert_eq!(args.len(), 1);
@@ -1265,7 +1278,7 @@ mod tests {
     fn test_module_variable() {
         let expr = parse_expr_normalized("m:PI");
         match expr {
-            Expr::ModuleAccess(module, var, _) => {
+            Expr::ModuleAccess(module, var, _, _) => {
                 assert_eq!(module, hi_common::intern("m"));
                 assert_eq!(var, hi_common::intern("PI"));
             }

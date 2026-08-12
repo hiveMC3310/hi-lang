@@ -99,7 +99,7 @@ fn close_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Va
                 span: *span,
                 message: format!(
                     "close() expects a file, got {}",
-                    crate::utils::type_name(&file_val)
+                    crate::utils::type_name(file_val)
                 ),
             });
         }
@@ -141,7 +141,7 @@ fn read_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Val
                 span: *span,
                 message: format!(
                     "read() expects a file, got {}",
-                    crate::utils::type_name(&file_val)
+                    crate::utils::type_name(file_val)
                 ),
             });
         }
@@ -187,7 +187,7 @@ fn readln_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<V
                 span: *span,
                 message: format!(
                     "readln() expects a file, got {}",
-                    crate::utils::type_name(&file_val)
+                    crate::utils::type_name(file_val)
                 ),
             });
         }
@@ -237,7 +237,7 @@ fn write_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Va
                 span: *span,
                 message: format!(
                     "write() expects a file, got {}",
-                    crate::utils::type_name(&file_val)
+                    crate::utils::type_name(file_val)
                 ),
             });
         }
@@ -283,7 +283,7 @@ fn writeln_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
                 span: *span,
                 message: format!(
                     "writeln() expects a file, got {}",
-                    crate::utils::type_name(&file_val)
+                    crate::utils::type_name(file_val)
                 ),
             });
         }
@@ -325,7 +325,7 @@ fn eof_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Valu
                 span: *span,
                 message: format!(
                     "eof() expects a file, got {}",
-                    crate::utils::type_name(&file_val)
+                    crate::utils::type_name(file_val)
                 ),
             });
         }

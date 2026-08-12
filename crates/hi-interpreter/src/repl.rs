@@ -77,9 +77,9 @@ pub fn repl_run() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
-        if trimmed.starts_with(":load") {
+        if let Some(stripped) = trimmed.strip_prefix(":load") {
             // Extract the argument after `:load` – may be quoted.
-            let arg = trimmed[5..].trim();
+            let arg = stripped.trim();
             let path_str = parse_load_arg(arg);
             let path = Path::new(&path_str);
             let abs_path = match std::fs::canonicalize(path) {

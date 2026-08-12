@@ -61,7 +61,7 @@ impl PartialEq for Value {
             (Value::List(a), Value::List(b)) => {
                 let a_borrow = a.borrow();
                 let b_borrow = b.borrow();
-                &*a_borrow == &*b_borrow
+                *a_borrow == *b_borrow
             }
             (Value::Dict(a), Value::Dict(b)) => {
                 let a_borrow = a.borrow();

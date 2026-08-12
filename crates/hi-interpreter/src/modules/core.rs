@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 // ---------- hello ----------
 pub fn hello_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
-    if args.len() != 0 {
+    if !args.is_empty() {
         return Err(InterpError::Runtime {
             span: *span,
             message: format!("hello() doesn't expect args, got {}", args.len()),
@@ -44,7 +44,7 @@ pub fn call_fn(interp: &mut Interpreter, args: &[Value], span: &Span) -> InterpR
                 span: *span,
                 message: format!(
                     "call() expects a function, got {}",
-                    crate::utils::type_name(&func_val)
+                    crate::utils::type_name(func_val)
                 ),
             });
         }
@@ -128,7 +128,7 @@ pub fn len_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
                 span: *span,
                 message: format!(
                     "len() expects string, list, or dict, got {}",
-                    crate::utils::type_name(&val)
+                    crate::utils::type_name(val)
                 ),
             });
         }
@@ -163,7 +163,7 @@ pub fn keys_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult
             span: *span,
             message: format!(
                 "keys() expects a dict, got {}",
-                crate::utils::type_name(&val)
+                crate::utils::type_name(val)
             ),
         }),
     }
@@ -196,7 +196,7 @@ pub fn values_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResu
             span: *span,
             message: format!(
                 "values() expects a dict, got {}",
-                crate::utils::type_name(&val)
+                crate::utils::type_name(val)
             ),
         }),
     }
@@ -223,7 +223,7 @@ pub fn append_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResu
     let elem_val = &args[1];
     match list_val {
         Value::List(list_rc) => {
-            let new_list_rc = if Rc::strong_count(&list_rc) == 1 {
+            let new_list_rc = if Rc::strong_count(list_rc) == 1 {
                 list_rc.borrow_mut().push(elem_val.clone());
                 list_rc.clone()
             } else {
@@ -237,7 +237,7 @@ pub fn append_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResu
             span: *span,
             message: format!(
                 "append() expects a list, got {}",
-                crate::utils::type_name(&list_val)
+                crate::utils::type_name(list_val)
             ),
         }),
     }
@@ -281,7 +281,7 @@ pub fn insert_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResu
                     message: format!("insert() index {} out of bounds (len={})", idx, len),
                 });
             }
-            let new_list_rc = if Rc::strong_count(&list_rc) == 1 {
+            let new_list_rc = if Rc::strong_count(list_rc) == 1 {
                 list_rc.borrow_mut().insert(idx as usize, elem_val.clone());
                 list_rc.clone()
             } else {
@@ -295,7 +295,7 @@ pub fn insert_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResu
             span: *span,
             message: format!(
                 "insert() expects a list, got {}",
-                crate::utils::type_name(&list_val)
+                crate::utils::type_name(list_val)
             ),
         }),
     }
@@ -338,7 +338,7 @@ pub fn remove_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResu
                     message: format!("remove() index {} out of bounds (len={})", idx, len),
                 });
             }
-            let new_list_rc = if Rc::strong_count(&list_rc) == 1 {
+            let new_list_rc = if Rc::strong_count(list_rc) == 1 {
                 list_rc.borrow_mut().remove(idx as usize);
                 list_rc.clone()
             } else {
@@ -356,7 +356,7 @@ pub fn remove_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResu
                 });
             }
             let mut dict_ref = dict_rc.borrow_mut();
-            if dict_ref.remove(&idx_val).is_none() {
+            if dict_ref.remove(idx_val).is_none() {
                 return Err(InterpError::Runtime {
                     span: *span,
                     message: format!("remove() key {:?} not found", idx_val),
@@ -368,7 +368,7 @@ pub fn remove_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResu
             span: *span,
             message: format!(
                 "remove() expects a list or dict, got {}",
-                crate::utils::type_name(&base_val)
+                crate::utils::type_name(base_val)
             ),
         }),
     }
@@ -395,7 +395,7 @@ pub fn contains_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpRe
     let elem = &args[1];
     let result = match (&base, &elem) {
         (Value::String(s), Value::String(sub)) => s.contains(sub),
-        (Value::List(l_rc), val) => l_rc.borrow().contains(&val),
+        (Value::List(l_rc), val) => l_rc.borrow().contains(val),
         (Value::Dict(d_rc), key) => {
             if !key.is_hashable() {
                 return Err(InterpError::Runtime {
@@ -410,8 +410,8 @@ pub fn contains_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpRe
                 span: *span,
                 message: format!(
                     "contains() expects string/string or list/element, or dict/key, got {} and {}",
-                    crate::utils::type_name(&base),
-                    crate::utils::type_name(&elem)
+                    crate::utils::type_name(base),
+                    crate::utils::type_name(elem)
                 ),
             });
         }
@@ -452,8 +452,8 @@ pub fn indexof_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpRes
                 span: *span,
                 message: format!(
                     "indexof() expects string/string or list/element, got {} and {}",
-                    crate::utils::type_name(&base),
-                    crate::utils::type_name(&elem)
+                    crate::utils::type_name(base),
+                    crate::utils::type_name(elem)
                 ),
             });
         }
@@ -554,7 +554,7 @@ pub fn slice_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResul
                 span: *span,
                 message: format!(
                     "slice() expects a list, got {}",
-                    crate::utils::type_name(&list_val)
+                    crate::utils::type_name(list_val)
                 ),
             });
         }
@@ -626,7 +626,7 @@ pub fn reverse_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpRes
             span: *span,
             message: format!(
                 "reverse() expects a string or list, got {}",
-                crate::utils::type_name(&val)
+                crate::utils::type_name(val)
             ),
         }),
     }
@@ -662,7 +662,7 @@ pub fn put_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
                 span: *span,
                 message: format!(
                     "put() expects a dict, got {}",
-                    crate::utils::type_name(&dict_val)
+                    crate::utils::type_name(dict_val)
                 ),
             });
         }
@@ -703,7 +703,7 @@ pub fn get_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
                 span: *span,
                 message: format!(
                     "get() expects a dict, got {}",
-                    crate::utils::type_name(&dict_val)
+                    crate::utils::type_name(dict_val)
                 ),
             });
         }
@@ -714,7 +714,7 @@ pub fn get_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
             message: "get() key must be hashable".to_string(),
         });
     }
-    match dict_rc.borrow().get(&key) {
+    match dict_rc.borrow().get(key) {
         Some(v) => Ok(v.clone()),
         None => Ok(Value::Nil),
     }
@@ -777,7 +777,7 @@ pub fn toint_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResul
             span: *span,
             message: format!(
                 "toint() expects number or string, got {}",
-                crate::utils::type_name(&val)
+                crate::utils::type_name(val)
             ),
         }),
     }
@@ -819,7 +819,7 @@ pub fn tofloat_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpRes
             span: *span,
             message: format!(
                 "tofloat() expects number or string, got {}",
-                crate::utils::type_name(&val)
+                crate::utils::type_name(val)
             ),
         }),
     }
@@ -843,7 +843,7 @@ pub fn typeof_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResu
         });
     }
     let val = &args[0];
-    let type_name = crate::utils::type_name(&val);
+    let type_name = crate::utils::type_name(val);
     Ok(Value::String(type_name.to_string()))
 }
 

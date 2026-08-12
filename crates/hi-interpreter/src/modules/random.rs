@@ -150,7 +150,7 @@ fn shuffle_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
         }
     };
 
-    let new_list_rc = if Rc::strong_count(&list_rc) == 1 {
+    let new_list_rc = if Rc::strong_count(list_rc) == 1 {
         let mut list = list_rc.borrow_mut();
         let mut rng = rand::rng();
         list.shuffle(&mut rng);

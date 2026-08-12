@@ -1,3 +1,4 @@
+#![allow(clippy::mutable_key_type)]
 use crate::ast::Span;
 use crate::builtins::ModuleFunction;
 use crate::error::{InterpError, InterpResult};
@@ -321,7 +322,7 @@ inventory::submit! {
 
 // ---------- cwd ----------
 fn cwd_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Value> {
-    if args.len() != 0 {
+    if !args.is_empty() {
         return Err(InterpError::Runtime {
             span: *span,
             message: format!("cwd() expects no arguments, got {}", args.len()),

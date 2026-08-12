@@ -4,6 +4,7 @@
 //! It includes the `Module` trait, which all modules must implement, along with
 //! concrete implementations for user modules (loaded from `.hi` files) and
 //! built-in modules (implemented in Rust).
+#![allow(clippy::mutable_key_type)]
 
 pub mod collections;
 pub mod core;
@@ -32,6 +33,7 @@ use std::rc::Rc;
 /// - a mutable reference to the interpreter,
 /// - a slice of argument values,
 /// - a span for error reporting,
+///
 /// and return a `Value` or an error.
 pub type BuiltinFn = Rc<dyn Fn(&mut Interpreter, &[Value], &Span) -> InterpResult<Value>>;
 
@@ -114,7 +116,7 @@ impl Module for UserModule {
                         ),
                     });
                 }
-                let mut child = Environment::child(interp.env.clone());
+                let mut child = Environment::child(self.env.clone());
                 for (p, v) in params.iter().zip(args) {
                     child.define(*p, Binding::Variable(v.clone()));
                 }

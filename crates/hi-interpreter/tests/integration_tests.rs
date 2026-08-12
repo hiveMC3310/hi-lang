@@ -1585,7 +1585,7 @@ fn test_regex_find() -> Result<(), Box<dyn std::error::Error>> {
 fn test_regex_find_all() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         IMPORT "regex" AS re
-        LET all = re:find_all("\\d+", "abc123def456ghi789")
+        LET all = re:findall("\\d+", "abc123def456ghi789")
         PRINT "all=", all
     "#;
     let (result, output) = run_and_capture(code)?;
@@ -1703,9 +1703,9 @@ fn test_path_extname() -> Result<(), Box<dyn std::error::Error>> {
 fn test_path_is_absolute() -> Result<(), Box<dyn std::error::Error>> {
     let code = r#"
         IMPORT "path" AS p
-        PRINT "abs1=", p:is_absolute("/home/user")
-        PRINT "abs2=", p:is_absolute("relative/path")
-        PRINT "abs3=", p:is_absolute("C:\\Windows")   // Windows absolute
+        PRINT "abs1=", p:isabsolute("/home/user")
+        PRINT "abs2=", p:isabsolute("relative/path")
+        PRINT "abs3=", p:isabsolute("C:\\Windows")   // Windows absolute
     "#;
     let (result, output) = run_and_capture(code)?;
 

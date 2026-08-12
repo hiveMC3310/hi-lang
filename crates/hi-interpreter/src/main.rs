@@ -73,7 +73,7 @@ fn main() -> Result<()> {
     };
 
     let mut interpreter = Interpreter::new();
-    interpreter.set_argv(args.arguments);
+    interpreter.set_argv(args.arguments)?;
     interpreter.current_file = Some(root_path.to_path_buf());
 
     if let Err(e) = interpreter.run(&program) {

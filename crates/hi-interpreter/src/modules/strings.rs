@@ -28,8 +28,8 @@ fn split_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Va
             span: *span,
             message: format!(
                 "split() expects two strings, got {} and {}",
-                crate::utils::type_name(&base),
-                crate::utils::type_name(&delim)
+                crate::utils::type_name(base),
+                crate::utils::type_name(delim)
             ),
         }),
     }
@@ -57,15 +57,15 @@ fn replace_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<
     let new = &args[2];
     match (&base, &old, &new) {
         (Value::String(s), Value::String(old_str), Value::String(new_str)) => {
-            Ok(Value::String(s.replace(old_str, &new_str)))
+            Ok(Value::String(s.replace(old_str, new_str)))
         }
         _ => Err(InterpError::Runtime {
             span: *span,
             message: format!(
                 "replace() expects three strings, got {}, {}, {}",
-                crate::utils::type_name(&base),
-                crate::utils::type_name(&old),
-                crate::utils::type_name(&new)
+                crate::utils::type_name(base),
+                crate::utils::type_name(old),
+                crate::utils::type_name(new)
             ),
         }),
     }
@@ -98,7 +98,7 @@ fn substr_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<V
                 span: *span,
                 message: format!(
                     "substr() expects a string, got {}",
-                    crate::utils::type_name(&s_val)
+                    crate::utils::type_name(s_val)
                 ),
             });
         }
@@ -165,8 +165,8 @@ fn starts_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<V
             span: *span,
             message: format!(
                 "starts() expects two strings, got {} and {}",
-                crate::utils::type_name(&base),
-                crate::utils::type_name(&prefix)
+                crate::utils::type_name(base),
+                crate::utils::type_name(prefix)
             ),
         }),
     }
@@ -197,8 +197,8 @@ fn ends_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Val
             span: *span,
             message: format!(
                 "ends() expects two strings, got {} and {}",
-                crate::utils::type_name(&base),
-                crate::utils::type_name(&suffix)
+                crate::utils::type_name(base),
+                crate::utils::type_name(suffix)
             ),
         }),
     }
@@ -228,7 +228,7 @@ fn upper_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Va
             span: *span,
             message: format!(
                 "upper() expects a string, got {}",
-                crate::utils::type_name(&val)
+                crate::utils::type_name(val)
             ),
         }),
     }
@@ -258,7 +258,7 @@ fn lower_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Va
             span: *span,
             message: format!(
                 "lower() expects a string, got {}",
-                crate::utils::type_name(&val)
+                crate::utils::type_name(val)
             ),
         }),
     }
@@ -288,7 +288,7 @@ fn trim_fn(_: &mut Interpreter, args: &[Value], span: &Span) -> InterpResult<Val
             span: *span,
             message: format!(
                 "trim() expects a string, got {}",
-                crate::utils::type_name(&val)
+                crate::utils::type_name(val)
             ),
         }),
     }

@@ -93,8 +93,15 @@ pub enum Stmt {
     Break(Span),
 
     /// Function definition: `FUNC name(params) ... END`.
-    /// Parameters: `(name, param_list, body_block, doc_string_opt, name_span, full_span)`
-    Func(Symbol, Vec<Symbol>, Block, Option<String>, Span, Span),
+    /// Parameters: `(name, param_list with their spans, body_block, doc_string_opt, name_span, full_span)`
+    Func(
+        Symbol,
+        Vec<(Symbol, Span)>,
+        Block,
+        Option<String>,
+        Span,
+        Span,
+    ),
 
     /// Return statement: `RET [expr]`.
     /// Parameters: `(return_value_expr_opt, span)`
@@ -155,13 +162,13 @@ pub enum Expr {
     Dict(Vec<(Expr, Expr)>, Span),
 
     /// Function call: `name(arg1, arg2, ...)`.
-    Call(Symbol, Vec<Expr>, Span),
+    Call(Symbol, Vec<Expr>, Span, Span),
 
     /// Module variable access: `module:var`.
-    ModuleAccess(Symbol, Symbol, Span),
+    ModuleAccess(Symbol, Symbol, Span, Span),
 
     /// Module function call: `module:func(args)`.
-    CallModule(Symbol, Symbol, Vec<Expr>, Span),
+    CallModule(Symbol, Symbol, Vec<Expr>, Span, Span),
 }
 
 impl Expr {
@@ -176,11 +183,11 @@ impl Expr {
             Expr::Binary(_, _, _, span) => *span,
             Expr::Unary(_, _, span) => *span,
             Expr::Index(_, _, span) => *span,
-            Expr::Call(_, _, span) => *span,
+            Expr::Call(_, _, _, full_span) => *full_span,
             Expr::List(_, span) => *span,
             Expr::Dict(_, span) => *span,
-            Expr::ModuleAccess(_, _, span) => *span,
-            Expr::CallModule(_, _, _, span) => *span,
+            Expr::ModuleAccess(_, _, _, full_span) => *full_span,
+            Expr::CallModule(_, _, _, _, full_span) => *full_span,
         }
     }
 }
